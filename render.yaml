@@ -7,7 +7,7 @@
 #   3. Fill in the secret env vars marked sync: false
 
 services:
-  - type: worker               # background process — no HTTP port needed
+  - type: web                  # free plan requires web service type
     name: expense-bot
     runtime: docker
     dockerfilePath: ./Dockerfile

@@ -2,6 +2,7 @@ package main
 
 import (
 	"log"
+	"net/http"
 	"os"
 
 	"expense-bot/internal/bot"
@@ -17,6 +18,18 @@ func main() {
 	if err != nil {
 		log.Fatalf("bot init: %v", err)
 	}
+
+	// Render web services require an HTTP listener on $PORT.
+	go func() {
+		port := envOr("PORT", "8080")
+		http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		})
+		log.Printf("health: listening on :%s", port)
+		if err := http.ListenAndServe(":"+port, nil); err != nil {
+			log.Fatalf("health server: %v", err)
+		}
+	}()
 
 	application.Run()
 }
