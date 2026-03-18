@@ -5,13 +5,15 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 )
 
 // Config holds all runtime settings for the bot.
 type Config struct {
-	BotToken      string `json:"bot_token"`
-	SpreadsheetID string `json:"spreadsheet_id"`
-	Salary        int    `json:"salary"`
+	BotToken       string  `json:"bot_token"`
+	SpreadsheetID  string  `json:"spreadsheet_id"`
+	Salary         int     `json:"salary"`
+	AllowedUserIDs []int64 `json:"allowed_user_ids"`
 }
 
 // Load reads config from a JSON file.
@@ -54,6 +56,15 @@ func (c *Config) applyEnvOverrides() {
 	if v := os.Getenv("SALARY"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
 			c.Salary = n
+		}
+	}
+	if v := os.Getenv("ALLOWED_USER_IDS"); v != "" {
+		c.AllowedUserIDs = nil
+		for _, s := range strings.Split(v, ",") {
+			s = strings.TrimSpace(s)
+			if id, err := strconv.ParseInt(s, 10, 64); err == nil {
+				c.AllowedUserIDs = append(c.AllowedUserIDs, id)
+			}
 		}
 	}
 }

@@ -20,31 +20,55 @@ const (
 
 // Handler processes all incoming Telegram updates.
 type Handler struct {
-	bot     *tgbotapi.BotAPI
-	sheets  *sheets.Client
-	salary  int
-	sheetID string
-	states  *stateStore
+	bot          *tgbotapi.BotAPI
+	sheets       *sheets.Client
+	salary       int
+	sheetID      string
+	states       *stateStore
+	allowedUsers map[int64]bool
 }
 
-func newHandler(bot *tgbotapi.BotAPI, sheetsClient *sheets.Client, salary int, sheetID string) *Handler {
-	return &Handler{
-		bot:     bot,
-		sheets:  sheetsClient,
-		salary:  salary,
-		sheetID: sheetID,
-		states:  newStateStore(),
+func newHandler(bot *tgbotapi.BotAPI, sheetsClient *sheets.Client, salary int, sheetID string, allowedUserIDs []int64) *Handler {
+	allowed := make(map[int64]bool, len(allowedUserIDs))
+	for _, id := range allowedUserIDs {
+		allowed[id] = true
 	}
+	return &Handler{
+		bot:          bot,
+		sheets:       sheetsClient,
+		salary:       salary,
+		sheetID:      sheetID,
+		states:       newStateStore(),
+		allowedUsers: allowed,
+	}
+}
+
+// isAllowed returns true if the user is permitted to use the bot.
+// If no allow-list is configured, everyone is allowed.
+func (h *Handler) isAllowed(userID int64) bool {
+	if len(h.allowedUsers) == 0 {
+		return true
+	}
+	return h.allowedUsers[userID]
 }
 
 // HandleMessage routes incoming text messages.
 func (h *Handler) HandleMessage(msg *tgbotapi.Message) {
+	if msg.From == nil {
+		return
+	}
+	userID := msg.From.ID
 	chatID := msg.Chat.ID
 	text := strings.TrimSpace(msg.Text)
 
+	if !h.isAllowed(userID) {
+		h.sendMarkdown(chatID, "⛔ У вас нет доступа к этому боту.", nil)
+		return
+	}
+
 	// If user is mid-conversation waiting to enter amount.
 	if d := h.states.get(chatID); d != nil && d.Step == stepEnterAmount {
-		h.handleAmountInput(chatID, text, d)
+		h.handleAmountInput(chatID, userID, text, d)
 		return
 	}
 
@@ -69,9 +93,9 @@ func (h *Handler) HandleMessage(msg *tgbotapi.Message) {
 		kb := categoryKeyboard()
 		h.sendMarkdown(chatID, "📂 *Выбери категорию:*", &kb)
 	case "📊 Отчёт за месяц":
-		h.handleReport(chatID, time.Now().Format("2006-01"))
+		h.handleReport(chatID, userID, time.Now().Format("2006-01"))
 	case "💰 Остаток":
-		h.handleBalance(chatID)
+		h.handleBalance(chatID, userID)
 	case "📋 Открыть таблицу":
 		kb := sheetLinkKeyboard(h.sheetID)
 		h.sendMarkdown(chatID, "👆 Нажми чтобы открыть:", &kb)
@@ -82,21 +106,36 @@ func (h *Handler) HandleMessage(msg *tgbotapi.Message) {
 func (h *Handler) HandleCallback(query *tgbotapi.CallbackQuery) {
 	h.bot.Request(tgbotapi.NewCallback(query.ID, ""))
 
+	userID := query.From.ID
 	chatID := query.Message.Chat.ID
 	msgID := query.Message.MessageID
 	data := query.Data
 
+	if !h.isAllowed(userID) {
+		return
+	}
+
 	switch {
 	case strings.HasPrefix(data, callbackCat):
-		h.handleCategoryCallback(chatID, msgID, data[len(callbackCat):])
+		h.handleCategoryCallback(chatID, userID, msgID, data[len(callbackCat):])
 	case strings.HasPrefix(data, callbackReport):
-		h.handleReportCallback(chatID, msgID, data[len(callbackReport):])
+		h.handleReportCallback(chatID, userID, msgID, data[len(callbackReport):])
 	}
 }
 
 // ── private handlers ──────────────────────────────────────────────────────────
 
 func (h *Handler) handleStart(msg *tgbotapi.Message) {
+	go func() {
+		username := ""
+		if msg.From.UserName != "" {
+			username = "@" + msg.From.UserName
+		}
+		if err := h.sheets.EnsureUser(msg.From.ID, msg.From.FirstName, username); err != nil {
+			log.Printf("EnsureUser error: %v", err)
+		}
+	}()
+
 	text := fmt.Sprintf(
 		"👋 Привет, *%s*!\n\n"+
 			"Я записываю расходы прямо в *Google Таблицу* 📊\n\n"+
@@ -111,7 +150,7 @@ func (h *Handler) handleStart(msg *tgbotapi.Message) {
 	h.sendMarkdownWithReply(msg.Chat.ID, text, kb)
 }
 
-func (h *Handler) handleAmountInput(chatID int64, text string, d *dialog) {
+func (h *Handler) handleAmountInput(chatID int64, userID int64, text string, d *dialog) {
 	parts := strings.SplitN(text, " ", 2)
 	amt, err := strconv.ParseFloat(strings.ReplaceAll(parts[0], ",", "."), 64)
 	if err != nil || amt <= 0 {
@@ -124,10 +163,10 @@ func (h *Handler) handleAmountInput(chatID int64, text string, d *dialog) {
 	}
 	catName := d.Category
 	h.states.clear(chatID)
-	h.recordAndConfirm(chatID, 0, catName, amt, desc)
+	h.recordAndConfirm(chatID, userID, 0, catName, amt, desc)
 }
 
-func (h *Handler) handleCategoryCallback(chatID int64, msgID int, catName string) {
+func (h *Handler) handleCategoryCallback(chatID int64, userID int64, msgID int, catName string) {
 	if catName == "cancel" {
 		h.states.clear(chatID)
 		h.editText(chatID, msgID, "❌ Отменено", nil)
@@ -145,7 +184,7 @@ func (h *Handler) handleCategoryCallback(chatID int64, msgID int, catName string
 		desc := d.Description
 		h.states.clear(chatID)
 		h.editText(chatID, msgID, "⏳ Записываю...", nil)
-		h.recordAndConfirmEdit(chatID, msgID, catName, amt, desc)
+		h.recordAndConfirmEdit(chatID, userID, msgID, catName, amt, desc)
 		return
 	}
 
@@ -166,10 +205,10 @@ func (h *Handler) handleCategoryCallback(chatID int64, msgID int, catName string
 	)
 }
 
-func (h *Handler) handleReport(chatID int64, monthKey string) {
+func (h *Handler) handleReport(chatID int64, userID int64, monthKey string) {
 	h.sendMarkdown(chatID, "⏳ Загружаю...", nil)
 
-	stats, err := h.sheets.GetMonthStats(monthKey)
+	stats, err := h.sheets.GetMonthStats(userID, monthKey)
 	if err != nil {
 		h.sendMarkdown(chatID, fmt.Sprintf("❌ Ошибка загрузки: `%v`", err), nil)
 		return
@@ -184,8 +223,8 @@ func (h *Handler) handleReport(chatID int64, monthKey string) {
 	h.sendMarkdown(chatID, text, &kb)
 }
 
-func (h *Handler) handleReportCallback(chatID int64, msgID int, monthKey string) {
-	stats, err := h.sheets.GetMonthStats(monthKey)
+func (h *Handler) handleReportCallback(chatID int64, userID int64, msgID int, monthKey string) {
+	stats, err := h.sheets.GetMonthStats(userID, monthKey)
 	if err != nil {
 		h.editText(chatID, msgID, fmt.Sprintf("❌ Ошибка: `%v`", err), nil)
 		return
@@ -194,10 +233,10 @@ func (h *Handler) handleReportCallback(chatID int64, msgID int, monthKey string)
 	h.editText(chatID, msgID, text, nil)
 }
 
-func (h *Handler) handleBalance(chatID int64) {
+func (h *Handler) handleBalance(chatID int64, userID int64) {
 	h.sendMarkdown(chatID, "⏳ Считаю...", nil)
 
-	stats, err := h.sheets.GetMonthStats(time.Now().Format("2006-01"))
+	stats, err := h.sheets.GetMonthStats(userID, time.Now().Format("2006-01"))
 	if err != nil {
 		h.sendMarkdown(chatID, fmt.Sprintf("❌ Ошибка: `%v`", err), nil)
 		return
@@ -206,8 +245,8 @@ func (h *Handler) handleBalance(chatID int64) {
 	h.sendMarkdownWithReply(chatID, formatBalance(stats, h.salary), kb)
 }
 
-func (h *Handler) recordAndConfirm(chatID int64, msgID int, catName string, amt float64, desc string) {
-	sheetTitle, err := h.sheets.AppendExpense(sheets.Expense{
+func (h *Handler) recordAndConfirm(chatID int64, userID int64, msgID int, catName string, amt float64, desc string) {
+	sheetTitle, err := h.sheets.AppendExpense(userID, sheets.Expense{
 		Category:    catName,
 		Amount:      amt,
 		Description: desc,
@@ -221,8 +260,8 @@ func (h *Handler) recordAndConfirm(chatID int64, msgID int, catName string, amt 
 	h.sendMarkdownWithReply(chatID, buildConfirmText(catName, amt, desc, sheetTitle), kb)
 }
 
-func (h *Handler) recordAndConfirmEdit(chatID int64, msgID int, catName string, amt float64, desc string) {
-	sheetTitle, err := h.sheets.AppendExpense(sheets.Expense{
+func (h *Handler) recordAndConfirmEdit(chatID int64, userID int64, msgID int, catName string, amt float64, desc string) {
+	sheetTitle, err := h.sheets.AppendExpense(userID, sheets.Expense{
 		Category:    catName,
 		Amount:      amt,
 		Description: desc,

@@ -13,6 +13,8 @@ import (
 	"google.golang.org/api/sheets/v4"
 )
 
+const usersSheet = "Пользователи"
+
 // Expense is the data written to a single row in Google Sheets.
 type Expense struct {
 	Category    string
@@ -44,16 +46,12 @@ func New(credentialsFile, spreadsheetID string) (*Client, error) {
 // NewFromJSON creates a Client from raw service-account JSON bytes.
 // Use this when credentials come from an environment variable (e.g. Render).
 func NewFromJSON(credentialsJSON []byte, spreadsheetID string) (*Client, error) {
-	creds, err := google.CredentialsFromJSON(
-		context.Background(),
-		credentialsJSON,
-		sheets.SpreadsheetsScope,
-	)
+	conf, err := google.JWTConfigFromJSON(credentialsJSON, sheets.SpreadsheetsScope)
 	if err != nil {
 		return nil, fmt.Errorf("parse credentials: %w", err)
 	}
 
-	svc, err := sheets.NewService(context.Background(), option.WithCredentials(creds))
+	svc, err := sheets.NewService(context.Background(), option.WithTokenSource(conf.TokenSource(context.Background())))
 	if err != nil {
 		return nil, fmt.Errorf("create sheets service: %w", err)
 	}
@@ -61,17 +59,16 @@ func NewFromJSON(credentialsJSON []byte, spreadsheetID string) (*Client, error) 
 	return &Client{svc: svc, spreadsheetID: spreadsheetID}, nil
 }
 
-// AppendExpense writes one expense row to the current month's sheet.
-// Creates the sheet (with headers) if it does not yet exist.
-// Returns the sheet name written to.
-func (c *Client) AppendExpense(e Expense) (string, error) {
-	now := time.Now()
-	sheetName := monthSheetName(now)
-
-	if err := c.ensureSheetExists(sheetName); err != nil {
+// AppendExpense writes one expense row to the user's personal sheet.
+// The sheet is named after the user's Telegram ID and created with headers if absent.
+func (c *Client) AppendExpense(userID int64, e Expense) (string, error) {
+	sheetName := strconv.FormatInt(userID, 10)
+	headers := []interface{}{"Дата", "Время", "Категория", "Сумма", "Описание", "Месяц"}
+	if err := c.ensureSheet(sheetName, headers); err != nil {
 		return "", fmt.Errorf("ensure sheet: %w", err)
 	}
 
+	now := time.Now()
 	row := []interface{}{
 		now.Format("02.01.2006"),
 		now.Format("15:04"),
@@ -92,27 +89,25 @@ func (c *Client) AppendExpense(e Expense) (string, error) {
 	return sheetName, nil
 }
 
-// GetMonthStats reads all rows for the given month key (e.g. "2026-03")
-// and returns per-category totals.
-func (c *Client) GetMonthStats(monthKey string) (*MonthStats, error) {
-	sheetName, err := c.findSheetByPrefix(monthKey)
-	if err != nil {
-		return nil, err
-	}
-	if sheetName == "" {
-		return &MonthStats{Totals: map[string]float64{}}, nil
-	}
+// GetMonthStats reads the user's personal sheet and returns per-category totals
+// for the given month key (e.g. "2026-03").
+func (c *Client) GetMonthStats(userID int64, monthKey string) (*MonthStats, error) {
+	sheetName := strconv.FormatInt(userID, 10)
 
 	resp, err := c.svc.Spreadsheets.Values.
-		Get(c.spreadsheetID, sheetName+"!A2:F1000").
+		Get(c.spreadsheetID, sheetName+"!A2:F100000").
 		Do()
 	if err != nil {
-		return nil, fmt.Errorf("get values: %w", err)
+		// Sheet may not exist yet — return empty stats.
+		return &MonthStats{Totals: map[string]float64{}}, nil
 	}
 
 	stats := &MonthStats{Totals: map[string]float64{}}
 	for _, row := range resp.Values {
-		if len(row) < 4 {
+		if len(row) < 6 {
+			continue
+		}
+		if fmt.Sprint(row[5]) != monthKey {
 			continue
 		}
 		cat, _ := row[2].(string)
@@ -126,9 +121,38 @@ func (c *Client) GetMonthStats(monthKey string) (*MonthStats, error) {
 	return stats, nil
 }
 
+// EnsureUser registers the user in the "Пользователи" sheet if not already present.
+func (c *Client) EnsureUser(userID int64, firstName, username string) error {
+	if err := c.ensureSheet(usersSheet, []interface{}{"UserID", "Имя", "Username", "Дата регистрации"}); err != nil {
+		return err
+	}
+
+	resp, err := c.svc.Spreadsheets.Values.
+		Get(c.spreadsheetID, usersSheet+"!A2:A10000").
+		Do()
+	if err != nil {
+		return fmt.Errorf("read users sheet: %w", err)
+	}
+
+	idStr := strconv.FormatInt(userID, 10)
+	for _, row := range resp.Values {
+		if len(row) > 0 && fmt.Sprint(row[0]) == idStr {
+			return nil // already registered
+		}
+	}
+
+	row := []interface{}{idStr, firstName, username, time.Now().Format("02.01.2006 15:04")}
+	_, err = c.svc.Spreadsheets.Values.
+		Append(c.spreadsheetID, usersSheet+"!A1", &sheets.ValueRange{Values: [][]interface{}{row}}).
+		ValueInputOption("USER_ENTERED").
+		Do()
+	return err
+}
+
 // ── private helpers ───────────────────────────────────────────────────────────
 
-func (c *Client) ensureSheetExists(name string) error {
+// ensureSheet creates the named sheet with the given header row if it doesn't exist.
+func (c *Client) ensureSheet(name string, headers []interface{}) error {
 	resp, err := c.svc.Spreadsheets.Get(c.spreadsheetID).Do()
 	if err != nil {
 		return fmt.Errorf("get spreadsheet: %w", err)
@@ -147,38 +171,14 @@ func (c *Client) ensureSheetExists(name string) error {
 		},
 	}
 	if _, err := c.svc.Spreadsheets.BatchUpdate(c.spreadsheetID, req).Do(); err != nil {
-		return fmt.Errorf("add sheet: %w", err)
+		return fmt.Errorf("add sheet %q: %w", name, err)
 	}
 
-	headers := []interface{}{"Дата", "Время", "Категория", "Сумма", "Описание", "Месяц"}
 	_, err = c.svc.Spreadsheets.Values.
 		Append(c.spreadsheetID, name+"!A1", &sheets.ValueRange{Values: [][]interface{}{headers}}).
 		ValueInputOption("RAW").
 		Do()
 	return err
-}
-
-func (c *Client) findSheetByPrefix(prefix string) (string, error) {
-	resp, err := c.svc.Spreadsheets.Get(c.spreadsheetID).Do()
-	if err != nil {
-		return "", fmt.Errorf("get spreadsheet: %w", err)
-	}
-	for _, s := range resp.Sheets {
-		if strings.HasPrefix(s.Properties.Title, prefix) {
-			return s.Properties.Title, nil
-		}
-	}
-	return "", nil
-}
-
-func monthSheetName(t time.Time) string {
-	ru := map[time.Month]string{
-		time.January: "Январь", time.February: "Февраль", time.March: "Март",
-		time.April: "Апрель", time.May: "Май", time.June: "Июнь",
-		time.July: "Июль", time.August: "Август", time.September: "Сентябрь",
-		time.October: "Октябрь", time.November: "Ноябрь", time.December: "Декабрь",
-	}
-	return fmt.Sprintf("%s %s", t.Format("2006-01"), ru[t.Month()])
 }
 
 func parseAmount(v interface{}) (float64, error) {

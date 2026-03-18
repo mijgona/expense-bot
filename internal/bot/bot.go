@@ -23,7 +23,7 @@ func New(cfg *config.Config, sheetsClient *sheets.Client) (*Bot, error) {
 	}
 	log.Printf("Authorized as @%s", api.Self.UserName)
 
-	h := newHandler(api, sheetsClient, cfg.Salary, cfg.SpreadsheetID)
+	h := newHandler(api, sheetsClient, cfg.Salary, cfg.SpreadsheetID, cfg.AllowedUserIDs)
 	return &Bot{api: api, handler: h}, nil
 }
 
