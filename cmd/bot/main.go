@@ -1,0 +1,71 @@
+package main
+
+import (
+	"log"
+	"os"
+
+	"expense-bot/internal/bot"
+	"expense-bot/internal/config"
+	"expense-bot/internal/sheets"
+)
+
+func main() {
+	cfg := loadConfig()
+	sheetsClient := loadSheets(cfg.SpreadsheetID)
+
+	application, err := bot.New(cfg, sheetsClient)
+	if err != nil {
+		log.Fatalf("bot init: %v", err)
+	}
+
+	application.Run()
+}
+
+// loadConfig prefers environment variables (Render / Docker),
+// and falls back to config.json for local development.
+func loadConfig() *config.Config {
+	if os.Getenv("BOT_TOKEN") != "" {
+		log.Println("config: loading from environment variables")
+		cfg, err := config.LoadFromEnv()
+		if err != nil {
+			log.Fatalf("config (env): %v", err)
+		}
+		return cfg
+	}
+
+	path := envOr("CONFIG_PATH", "config.json")
+	log.Printf("config: loading from file %q", path)
+	cfg, err := config.Load(path)
+	if err != nil {
+		log.Fatalf("config (file): %v", err)
+	}
+	return cfg
+}
+
+// loadSheets prefers GOOGLE_CREDENTIALS_JSON env var (Render / Docker),
+// and falls back to credentials.json for local development.
+func loadSheets(spreadsheetID string) *sheets.Client {
+	if raw := os.Getenv("GOOGLE_CREDENTIALS_JSON"); raw != "" {
+		log.Println("sheets: loading credentials from GOOGLE_CREDENTIALS_JSON")
+		client, err := sheets.NewFromJSON([]byte(raw), spreadsheetID)
+		if err != nil {
+			log.Fatalf("sheets (env): %v", err)
+		}
+		return client
+	}
+
+	path := envOr("CREDENTIALS_PATH", "credentials.json")
+	log.Printf("sheets: loading credentials from file %q", path)
+	client, err := sheets.New(path, spreadsheetID)
+	if err != nil {
+		log.Fatalf("sheets (file): %v", err)
+	}
+	return client
+}
+
+func envOr(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
+}
