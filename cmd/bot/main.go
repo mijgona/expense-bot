@@ -4,6 +4,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"time"
 
 	"expense-bot/internal/bot"
 	"expense-bot/internal/config"
@@ -22,14 +23,18 @@ func main() {
 	// Render web services require an HTTP listener on $PORT.
 	go func() {
 		port := envOr("PORT", "8080")
-		http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{"status":"ok"}`))
 		})
 		log.Printf("health: listening on :%s", port)
 		if err := http.ListenAndServe(":"+port, nil); err != nil {
 			log.Fatalf("health server: %v", err)
 		}
 	}()
+
+	go selfPing()
 
 	application.Run()
 }
@@ -74,6 +79,25 @@ func loadSheets(spreadsheetID string) *sheets.Client {
 		log.Fatalf("sheets (file): %v", err)
 	}
 	return client
+}
+
+// selfPing keeps the Render free-tier service awake by pinging /health every 10 minutes.
+// It uses RENDER_EXTERNAL_URL which Render sets automatically.
+func selfPing() {
+	url := os.Getenv("RENDER_EXTERNAL_URL")
+	if url == "" {
+		return // not running on Render
+	}
+	url += "/health"
+	for range time.Tick(10 * time.Minute) {
+		resp, err := http.Get(url)
+		if err != nil {
+			log.Printf("self-ping error: %v", err)
+			continue
+		}
+		resp.Body.Close()
+		log.Printf("self-ping: %s %s", resp.Status, url)
+	}
 }
 
 func envOr(key, fallback string) string {
