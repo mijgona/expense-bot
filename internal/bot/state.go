@@ -9,6 +9,7 @@ const (
 	stepNone        dialogStep = iota
 	stepChooseCat              // waiting for category selection (button press)
 	stepEnterAmount            // waiting for "amount [description]" text
+	stepEnterIncome            // waiting for income amount [description]
 )
 
 // dialog holds per-user conversation state.

@@ -10,10 +10,13 @@ func mainKeyboard() tgbotapi.ReplyKeyboardMarkup {
 	kb := tgbotapi.NewReplyKeyboard(
 		tgbotapi.NewKeyboardButtonRow(
 			tgbotapi.NewKeyboardButton("➕ Записать расход"),
-			tgbotapi.NewKeyboardButton("📊 Отчёт за месяц"),
+			tgbotapi.NewKeyboardButton("💵 Записать приход"),
 		),
 		tgbotapi.NewKeyboardButtonRow(
+			tgbotapi.NewKeyboardButton("📊 Отчёт за месяц"),
 			tgbotapi.NewKeyboardButton("💰 Остаток"),
+		),
+		tgbotapi.NewKeyboardButtonRow(
 			tgbotapi.NewKeyboardButton("📋 Открыть таблицу"),
 		),
 	)

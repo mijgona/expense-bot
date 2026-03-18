@@ -16,16 +16,20 @@ import (
 const usersSheet = "Пользователи"
 
 // Expense is the data written to a single row in Google Sheets.
+// IsIncome=true writes a positive amount under category "Приход".
+// IsIncome=false writes a negative amount under the given Category.
 type Expense struct {
 	Category    string
-	Amount      float64
+	Amount      float64 // always positive; sign is set by IsIncome
 	Description string
+	IsIncome    bool
 }
 
-// MonthStats holds aggregated spending per category for a month.
+// MonthStats holds aggregated data for a month.
 type MonthStats struct {
-	Totals map[string]float64
-	Total  float64
+	Totals       map[string]float64 // expense totals per category (positive values)
+	TotalExpense float64
+	TotalIncome  float64
 }
 
 // Client wraps the Google Sheets API for expense tracking.
@@ -69,11 +73,17 @@ func (c *Client) AppendExpense(userID int64, e Expense) (string, error) {
 	}
 
 	now := time.Now()
+	cat := e.Category
+	amt := -e.Amount // expenses are negative
+	if e.IsIncome {
+		cat = "Приход"
+		amt = e.Amount // income is positive
+	}
 	row := []interface{}{
 		now.Format("02.01.2006"),
 		now.Format("15:04"),
-		e.Category,
-		e.Amount,
+		cat,
+		amt,
 		e.Description,
 		now.Format("2006-01"),
 	}
@@ -115,8 +125,12 @@ func (c *Client) GetMonthStats(userID int64, monthKey string) (*MonthStats, erro
 		if err != nil || cat == "" {
 			continue
 		}
-		stats.Totals[cat] += amt
-		stats.Total += amt
+		if amt >= 0 {
+			stats.TotalIncome += amt
+		} else {
+			stats.Totals[cat] += -amt
+			stats.TotalExpense += -amt
+		}
 	}
 	return stats, nil
 }

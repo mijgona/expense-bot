@@ -13,12 +13,16 @@ import (
 // formatReport builds a Markdown report string for the given month key (e.g. "2026-03").
 func formatReport(stats *sheets.MonthStats, salary int, monthKey string) string {
 	t, _ := time.Parse("2006-01", monthKey)
-	remaining := float64(salary) - stats.Total
+	income := stats.TotalIncome
+	if income == 0 {
+		income = float64(salary)
+	}
+	remaining := income - stats.TotalExpense
 
 	var sb strings.Builder
 	sb.WriteString(fmt.Sprintf("📊 *Отчёт за %s %d*\n\n", ruMonth(t.Month()), t.Year()))
-	sb.WriteString(fmt.Sprintf("💼 Зарплата: *%s с.*\n", fmtNum(float64(salary))))
-	sb.WriteString(fmt.Sprintf("💸 Потрачено: *%s с.*\n", fmtNum(stats.Total)))
+	sb.WriteString(fmt.Sprintf("💵 Приход: *%s с.*\n", fmtNum(income)))
+	sb.WriteString(fmt.Sprintf("💸 Расход: *%s с.*\n", fmtNum(stats.TotalExpense)))
 	sb.WriteString(fmt.Sprintf("💚 Остаток: *%s с.*\n", fmtNum(remaining)))
 
 	if len(stats.Totals) == 0 {
@@ -56,8 +60,12 @@ func formatReport(stats *sheets.MonthStats, salary int, monthKey string) string 
 // formatBalance builds a balance summary string.
 func formatBalance(stats *sheets.MonthStats, salary int) string {
 	now := time.Now()
-	remaining := float64(salary) - stats.Total
-	pct := stats.Total / float64(salary) * 100
+	income := stats.TotalIncome
+	if income == 0 {
+		income = float64(salary)
+	}
+	remaining := income - stats.TotalExpense
+	pct := stats.TotalExpense / income * 100
 	daysLeft := 30 - now.Day()
 	if daysLeft < 1 {
 		daysLeft = 1
@@ -66,15 +74,15 @@ func formatBalance(stats *sheets.MonthStats, salary int) string {
 
 	return fmt.Sprintf(
 		"%s *Баланс на %s*\n\n"+
-			"💼 Зарплата: *%s с.*\n"+
-			"💸 Потрачено: *%s с.* (%.1f%%)\n"+
+			"💵 Приход: *%s с.*\n"+
+			"💸 Расход: *%s с.* (%.1f%%)\n"+
 			"💚 Остаток: *%s с.*\n\n"+
 			"📅 Осталось дней: *%d*\n"+
 			"📊 На день: *%s с.*",
-		balanceIcon(remaining, float64(salary)),
+		balanceIcon(remaining, income),
 		now.Format("02.01.2006"),
-		fmtNum(float64(salary)),
-		fmtNum(stats.Total), pct,
+		fmtNum(income),
+		fmtNum(stats.TotalExpense), pct,
 		fmtNum(remaining),
 		daysLeft,
 		fmtNum(daily),

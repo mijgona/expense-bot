@@ -66,10 +66,16 @@ func (h *Handler) HandleMessage(msg *tgbotapi.Message) {
 		return
 	}
 
-	// If user is mid-conversation waiting to enter amount.
-	if d := h.states.get(chatID); d != nil && d.Step == stepEnterAmount {
-		h.handleAmountInput(chatID, userID, text, d)
-		return
+	// If user is mid-conversation.
+	if d := h.states.get(chatID); d != nil {
+		switch d.Step {
+		case stepEnterAmount:
+			h.handleAmountInput(chatID, userID, text, d)
+			return
+		case stepEnterIncome:
+			h.handleIncomeInput(chatID, userID, text)
+			return
+		}
 	}
 
 	// Try quick-input: "350" or "350 такси"
@@ -92,6 +98,9 @@ func (h *Handler) HandleMessage(msg *tgbotapi.Message) {
 		h.states.set(chatID, &dialog{Step: stepChooseCat})
 		kb := categoryKeyboard()
 		h.sendMarkdown(chatID, "📂 *Выбери категорию:*", &kb)
+	case "💵 Записать приход":
+		h.states.set(chatID, &dialog{Step: stepEnterIncome})
+		h.sendMarkdown(chatID, "💵 Введи *сумму* прихода и описание:\nПример: `5000 зарплата` или просто `5000`", nil)
 	case "📊 Отчёт за месяц":
 		h.handleReport(chatID, userID, time.Now().Format("2006-01"))
 	case "💰 Остаток":
@@ -163,7 +172,22 @@ func (h *Handler) handleAmountInput(chatID int64, userID int64, text string, d *
 	}
 	catName := d.Category
 	h.states.clear(chatID)
-	h.recordAndConfirm(chatID, userID, 0, catName, amt, desc)
+	h.recordAndConfirm(chatID, userID, 0, catName, amt, desc, false)
+}
+
+func (h *Handler) handleIncomeInput(chatID int64, userID int64, text string) {
+	parts := strings.SplitN(text, " ", 2)
+	amt, err := strconv.ParseFloat(strings.ReplaceAll(parts[0], ",", "."), 64)
+	if err != nil || amt <= 0 {
+		h.sendMarkdown(chatID, "❌ Введи число. Например: `5000` или `5000 зарплата`", nil)
+		return
+	}
+	desc := ""
+	if len(parts) > 1 {
+		desc = parts[1]
+	}
+	h.states.clear(chatID)
+	h.recordAndConfirm(chatID, userID, 0, "", amt, desc, true)
 }
 
 func (h *Handler) handleCategoryCallback(chatID int64, userID int64, msgID int, catName string) {
@@ -184,7 +208,7 @@ func (h *Handler) handleCategoryCallback(chatID int64, userID int64, msgID int, 
 		desc := d.Description
 		h.states.clear(chatID)
 		h.editText(chatID, msgID, "⏳ Записываю...", nil)
-		h.recordAndConfirmEdit(chatID, userID, msgID, catName, amt, desc)
+		h.recordAndConfirmEdit(chatID, userID, msgID, catName, amt, desc, false)
 		return
 	}
 
@@ -245,11 +269,12 @@ func (h *Handler) handleBalance(chatID int64, userID int64) {
 	h.sendMarkdownWithReply(chatID, formatBalance(stats, h.salary), kb)
 }
 
-func (h *Handler) recordAndConfirm(chatID int64, userID int64, msgID int, catName string, amt float64, desc string) {
+func (h *Handler) recordAndConfirm(chatID int64, userID int64, msgID int, catName string, amt float64, desc string, isIncome bool) {
 	sheetTitle, err := h.sheets.AppendExpense(userID, sheets.Expense{
 		Category:    catName,
 		Amount:      amt,
 		Description: desc,
+		IsIncome:    isIncome,
 	})
 	if err != nil {
 		kb := mainKeyboard()
@@ -257,34 +282,44 @@ func (h *Handler) recordAndConfirm(chatID int64, userID int64, msgID int, catNam
 		return
 	}
 	kb := mainKeyboard()
-	h.sendMarkdownWithReply(chatID, buildConfirmText(catName, amt, desc, sheetTitle), kb)
+	h.sendMarkdownWithReply(chatID, buildConfirmText(catName, amt, desc, sheetTitle, isIncome), kb)
 }
 
-func (h *Handler) recordAndConfirmEdit(chatID int64, userID int64, msgID int, catName string, amt float64, desc string) {
+func (h *Handler) recordAndConfirmEdit(chatID int64, userID int64, msgID int, catName string, amt float64, desc string, isIncome bool) {
 	sheetTitle, err := h.sheets.AppendExpense(userID, sheets.Expense{
 		Category:    catName,
 		Amount:      amt,
 		Description: desc,
+		IsIncome:    isIncome,
 	})
 	if err != nil {
 		h.editText(chatID, msgID, fmt.Sprintf("❌ Ошибка: `%v`", err), nil)
 		return
 	}
-	h.editText(chatID, msgID, buildConfirmText(catName, amt, desc, sheetTitle), nil)
+	h.editText(chatID, msgID, buildConfirmText(catName, amt, desc, sheetTitle, isIncome), nil)
 }
 
-func buildConfirmText(catName string, amt float64, desc, sheetTitle string) string {
-	cat := category.FindByName(catName)
-	label := catName
-	if cat != nil {
-		label = cat.Label
+func buildConfirmText(catName string, amt float64, desc, sheetTitle string, isIncome bool) string {
+	var label string
+	if isIncome {
+		label = "💵 Приход"
+	} else {
+		cat := category.FindByName(catName)
+		label = catName
+		if cat != nil {
+			label = cat.Label
+		}
 	}
 	descStr := ""
 	if desc != "" {
 		descStr = "\n📝 _" + desc + "_"
 	}
-	return fmt.Sprintf("✅ *Записано!*\n\n%s: *%s с.*%s\n📅 %s\n📋 `%s`",
-		label, fmtNum(amt), descStr,
+	sign := "-"
+	if isIncome {
+		sign = "+"
+	}
+	return fmt.Sprintf("✅ *Записано!*\n\n%s: *%s%s с.*%s\n📅 %s\n📋 `%s`",
+		label, sign, fmtNum(amt), descStr,
 		time.Now().Format("02.01.2006 15:04"),
 		sheetTitle,
 	)
