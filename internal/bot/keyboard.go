@@ -43,6 +43,15 @@ func categoryKeyboard() tgbotapi.InlineKeyboardMarkup {
 	return tgbotapi.NewInlineKeyboardMarkup(rows...)
 }
 
+func savingsKeyboard() tgbotapi.InlineKeyboardMarkup {
+	return tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("➕ Пополнить", "sav:add"),
+			tgbotapi.NewInlineKeyboardButtonData("➖ Снять", "sav:withdraw"),
+		),
+	)
+}
+
 func reportNavKeyboard(currentKey, prevKey, prevLabel string) tgbotapi.InlineKeyboardMarkup {
 	return tgbotapi.NewInlineKeyboardMarkup(
 		tgbotapi.NewInlineKeyboardRow(
