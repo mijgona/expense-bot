@@ -14,8 +14,9 @@ import (
 )
 
 const (
-	callbackCat    = "cat:"
-	callbackReport = "rep:"
+	callbackCat     = "cat:"
+	callbackReport  = "rep:"
+	callbackSavings = "sav:"
 )
 
 // Handler processes all incoming Telegram updates.
@@ -78,6 +79,9 @@ func (h *Handler) HandleMessage(msg *tgbotapi.Message) {
 		case stepEnterSavings:
 			h.handleSavingsInput(chatID, userID, text)
 			return
+		case stepWithdrawSavings:
+			h.handleWithdrawSavingsInput(chatID, userID, text)
+			return
 		}
 	}
 
@@ -134,6 +138,8 @@ func (h *Handler) HandleCallback(query *tgbotapi.CallbackQuery) {
 		h.handleCategoryCallback(chatID, userID, msgID, data[len(callbackCat):])
 	case strings.HasPrefix(data, callbackReport):
 		h.handleReportCallback(chatID, userID, msgID, data[len(callbackReport):])
+	case strings.HasPrefix(data, callbackSavings):
+		h.handleSavingsCallback(chatID, userID, msgID, data[len(callbackSavings):])
 	}
 }
 
@@ -197,14 +203,28 @@ func (h *Handler) handleIncomeInput(chatID int64, userID int64, text string) {
 
 func (h *Handler) handleSavingsView(chatID int64, userID int64) {
 	balance, _ := h.sheets.GetSavingsBalance(userID)
-	h.states.set(chatID, &dialog{Step: stepEnterSavings})
-	text := fmt.Sprintf(
-		"🏦 *Накопления*\n\n"+
-			"Всего накоплено: *%s с.*\n\n"+
-			"Введи сумму пополнения:\n`2000` или `2000 на машину`",
-		fmtNum(balance),
-	)
-	h.sendMarkdown(chatID, text, nil)
+	kb := savingsKeyboard()
+	text := fmt.Sprintf("🏦 *Накопления*\n\nВсего накоплено: *%s с.*", fmtNum(balance))
+	h.sendMarkdown(chatID, text, &kb)
+}
+
+func (h *Handler) handleSavingsCallback(chatID int64, userID int64, msgID int, action string) {
+	switch action {
+	case "add":
+		h.states.set(chatID, &dialog{Step: stepEnterSavings})
+		h.editText(chatID, msgID,
+			"➕ *Пополнение накоплений*\n\nВведи сумму:\n`2000` или `2000 на машину`", nil)
+	case "withdraw":
+		balance, _ := h.sheets.GetSavingsBalance(userID)
+		if balance <= 0 {
+			h.editText(chatID, msgID, "❌ Накоплений нет — нечего снимать.", nil)
+			return
+		}
+		h.states.set(chatID, &dialog{Step: stepWithdrawSavings})
+		h.editText(chatID, msgID,
+			fmt.Sprintf("➖ *Снятие из накоплений*\n\nДоступно: *%s с.*\n\nВведи сумму:\n`1000` или `1000 на телефон`",
+				fmtNum(balance)), nil)
+	}
 }
 
 func (h *Handler) handleSavingsInput(chatID int64, userID int64, text string) {
@@ -235,6 +255,44 @@ func (h *Handler) handleSavingsInput(chatID int64, userID int64, text string) {
 	h.sendMarkdownWithReply(chatID, fmt.Sprintf(
 		"✅ *Накопления пополнены!*\n\n+*%s с.*%s\n🏦 Итого: *%s с.*",
 		fmtNum(amt), descStr, fmtNum(balance),
+	), kb)
+}
+
+func (h *Handler) handleWithdrawSavingsInput(chatID int64, userID int64, text string) {
+	parts := strings.SplitN(text, " ", 2)
+	amt, err := strconv.ParseFloat(strings.ReplaceAll(parts[0], ",", "."), 64)
+	if err != nil || amt <= 0 {
+		h.sendMarkdown(chatID, "❌ Введи число. Например: `1000` или `1000 на телефон`", nil)
+		return
+	}
+	desc := ""
+	if len(parts) > 1 {
+		desc = parts[1]
+	}
+
+	balance, _ := h.sheets.GetSavingsBalance(userID)
+	if amt > balance {
+		h.sendMarkdown(chatID,
+			fmt.Sprintf("❌ Недостаточно накоплений. Доступно: *%s с.*", fmtNum(balance)), nil)
+		return
+	}
+
+	h.states.clear(chatID)
+	if err := h.sheets.WithdrawSaving(userID, amt, desc); err != nil {
+		kb := mainKeyboard()
+		h.sendMarkdownWithReply(chatID, fmt.Sprintf("❌ Ошибка записи: `%v`", err), kb)
+		return
+	}
+
+	newBalance, _ := h.sheets.GetSavingsBalance(userID)
+	descStr := ""
+	if desc != "" {
+		descStr = "\n📝 _" + desc + "_"
+	}
+	kb := mainKeyboard()
+	h.sendMarkdownWithReply(chatID, fmt.Sprintf(
+		"✅ *Снято из накоплений!*\n\n−*%s с.*%s\n🏦 Остаток: *%s с.*",
+		fmtNum(amt), descStr, fmtNum(newBalance),
 	), kb)
 }
 
