@@ -75,6 +75,9 @@ func (h *Handler) HandleMessage(msg *tgbotapi.Message) {
 		case stepEnterIncome:
 			h.handleIncomeInput(chatID, userID, text)
 			return
+		case stepEnterSavings:
+			h.handleSavingsInput(chatID, userID, text)
+			return
 		}
 	}
 
@@ -105,6 +108,8 @@ func (h *Handler) HandleMessage(msg *tgbotapi.Message) {
 		h.handleReport(chatID, userID, time.Now().Format("2006-01"))
 	case "💰 Остаток":
 		h.handleBalance(chatID, userID)
+	case "🏦 Накопления":
+		h.handleSavingsView(chatID, userID)
 	case "📋 Открыть таблицу":
 		kb := sheetLinkKeyboard(h.sheetID)
 		h.sendMarkdown(chatID, "👆 Нажми чтобы открыть:", &kb)
@@ -190,6 +195,49 @@ func (h *Handler) handleIncomeInput(chatID int64, userID int64, text string) {
 	h.recordAndConfirm(chatID, userID, 0, "", amt, desc, true)
 }
 
+func (h *Handler) handleSavingsView(chatID int64, userID int64) {
+	balance, _ := h.sheets.GetSavingsBalance(userID)
+	h.states.set(chatID, &dialog{Step: stepEnterSavings})
+	text := fmt.Sprintf(
+		"🏦 *Накопления*\n\n"+
+			"Всего накоплено: *%s с.*\n\n"+
+			"Введи сумму пополнения:\n`2000` или `2000 на машину`",
+		fmtNum(balance),
+	)
+	h.sendMarkdown(chatID, text, nil)
+}
+
+func (h *Handler) handleSavingsInput(chatID int64, userID int64, text string) {
+	parts := strings.SplitN(text, " ", 2)
+	amt, err := strconv.ParseFloat(strings.ReplaceAll(parts[0], ",", "."), 64)
+	if err != nil || amt <= 0 {
+		h.sendMarkdown(chatID, "❌ Введи число. Например: `2000` или `2000 на машину`", nil)
+		return
+	}
+	desc := ""
+	if len(parts) > 1 {
+		desc = parts[1]
+	}
+	h.states.clear(chatID)
+
+	if err := h.sheets.AddSaving(userID, amt, desc); err != nil {
+		kb := mainKeyboard()
+		h.sendMarkdownWithReply(chatID, fmt.Sprintf("❌ Ошибка записи: `%v`", err), kb)
+		return
+	}
+
+	balance, _ := h.sheets.GetSavingsBalance(userID)
+	descStr := ""
+	if desc != "" {
+		descStr = "\n📝 _" + desc + "_"
+	}
+	kb := mainKeyboard()
+	h.sendMarkdownWithReply(chatID, fmt.Sprintf(
+		"✅ *Накопления пополнены!*\n\n+*%s с.*%s\n🏦 Итого: *%s с.*",
+		fmtNum(amt), descStr, fmtNum(balance),
+	), kb)
+}
+
 func (h *Handler) handleCategoryCallback(chatID int64, userID int64, msgID int, catName string) {
 	if catName == "cancel" {
 		h.states.clear(chatID)
@@ -237,13 +285,15 @@ func (h *Handler) handleReport(chatID int64, userID int64, monthKey string) {
 		h.sendMarkdown(chatID, fmt.Sprintf("❌ Ошибка загрузки: `%v`", err), nil)
 		return
 	}
+	savingsBalance, _ := h.sheets.GetSavingsBalance(userID)
+	monthlySavings, _ := h.sheets.GetMonthlySavings(userID, monthKey)
 
 	now := time.Now()
 	prevTime := now.AddDate(0, -1, 0)
 	prevKey := prevTime.Format("2006-01")
 	kb := reportNavKeyboard(monthKey, prevKey, ruMonth(prevTime.Month()))
 
-	text := formatReport(stats, h.salary, monthKey)
+	text := formatReport(stats, h.salary, monthKey, savingsBalance, monthlySavings)
 	h.sendMarkdown(chatID, text, &kb)
 }
 
@@ -253,20 +303,25 @@ func (h *Handler) handleReportCallback(chatID int64, userID int64, msgID int, mo
 		h.editText(chatID, msgID, fmt.Sprintf("❌ Ошибка: `%v`", err), nil)
 		return
 	}
-	text := formatReport(stats, h.salary, monthKey)
+	savingsBalance, _ := h.sheets.GetSavingsBalance(userID)
+	monthlySavings, _ := h.sheets.GetMonthlySavings(userID, monthKey)
+	text := formatReport(stats, h.salary, monthKey, savingsBalance, monthlySavings)
 	h.editText(chatID, msgID, text, nil)
 }
 
 func (h *Handler) handleBalance(chatID int64, userID int64) {
 	h.sendMarkdown(chatID, "⏳ Считаю...", nil)
 
-	stats, err := h.sheets.GetMonthStats(userID, time.Now().Format("2006-01"))
+	monthKey := time.Now().Format("2006-01")
+	stats, err := h.sheets.GetMonthStats(userID, monthKey)
 	if err != nil {
 		h.sendMarkdown(chatID, fmt.Sprintf("❌ Ошибка: `%v`", err), nil)
 		return
 	}
+	savingsBalance, _ := h.sheets.GetSavingsBalance(userID)
+	monthlySavings, _ := h.sheets.GetMonthlySavings(userID, monthKey)
 	kb := mainKeyboard()
-	h.sendMarkdownWithReply(chatID, formatBalance(stats, h.salary), kb)
+	h.sendMarkdownWithReply(chatID, formatBalance(stats, h.salary, savingsBalance, monthlySavings), kb)
 }
 
 func (h *Handler) recordAndConfirm(chatID int64, userID int64, msgID int, catName string, amt float64, desc string, isIncome bool) {

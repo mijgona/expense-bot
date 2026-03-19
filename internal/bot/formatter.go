@@ -11,19 +11,26 @@ import (
 )
 
 // formatReport builds a Markdown report string for the given month key (e.g. "2026-03").
-func formatReport(stats *sheets.MonthStats, salary int, monthKey string) string {
+func formatReport(stats *sheets.MonthStats, salary int, monthKey string, savingsBalance, monthlySavings float64) string {
 	t, _ := time.Parse("2006-01", monthKey)
 	income := stats.TotalIncome
 	if income == 0 {
 		income = float64(salary)
 	}
-	remaining := income - stats.TotalExpense
+	remaining := income - stats.TotalExpense - monthlySavings
 
 	var sb strings.Builder
 	sb.WriteString(fmt.Sprintf("📊 *Отчёт за %s %d*\n\n", ruMonth(t.Month()), t.Year()))
 	sb.WriteString(fmt.Sprintf("💵 Приход: *%s с.*\n", fmtNum(income)))
 	sb.WriteString(fmt.Sprintf("💸 Расход: *%s с.*\n", fmtNum(stats.TotalExpense)))
+	if monthlySavings > 0 {
+		sb.WriteString(fmt.Sprintf("🏦 Накоплено: *%s с.*\n", fmtNum(monthlySavings)))
+	}
 	sb.WriteString(fmt.Sprintf("💚 Остаток: *%s с.*\n", fmtNum(remaining)))
+
+	if savingsBalance > 0 {
+		sb.WriteString(fmt.Sprintf("💎 Всего накоплено: *%s с.*\n", fmtNum(savingsBalance)))
+	}
 
 	if len(stats.Totals) == 0 {
 		sb.WriteString("\n_Расходов за этот период нет_")
@@ -58,32 +65,40 @@ func formatReport(stats *sheets.MonthStats, salary int, monthKey string) string 
 }
 
 // formatBalance builds a balance summary string.
-func formatBalance(stats *sheets.MonthStats, salary int) string {
+func formatBalance(stats *sheets.MonthStats, salary int, savingsBalance, monthlySavings float64) string {
 	now := time.Now()
 	income := stats.TotalIncome
 	if income == 0 {
 		income = float64(salary)
 	}
-	remaining := income - stats.TotalExpense
-	pct := stats.TotalExpense / income * 100
+	remaining := income - stats.TotalExpense - monthlySavings
+	pct := (stats.TotalExpense + monthlySavings) / income * 100
 	daysLeft := 30 - now.Day()
 	if daysLeft < 1 {
 		daysLeft = 1
 	}
 	daily := remaining / float64(daysLeft)
 
+	savingsLine := ""
+	if monthlySavings > 0 {
+		savingsLine = fmt.Sprintf("\n🏦 Накоплено: *%s с.*", fmtNum(monthlySavings))
+	}
+	balanceLine := ""
+	if savingsBalance > 0 {
+		balanceLine = fmt.Sprintf("\n💎 Всего накоплено: *%s с.*", fmtNum(savingsBalance))
+	}
 	return fmt.Sprintf(
 		"%s *Баланс на %s*\n\n"+
 			"💵 Приход: *%s с.*\n"+
-			"💸 Расход: *%s с.* (%.1f%%)\n"+
-			"💚 Остаток: *%s с.*\n\n"+
+			"💸 Расход: *%s с.* (%.1f%%)%s\n"+
+			"💚 Остаток: *%s с.*%s\n\n"+
 			"📅 Осталось дней: *%d*\n"+
 			"📊 На день: *%s с.*",
 		balanceIcon(remaining, income),
 		now.Format("02.01.2006"),
 		fmtNum(income),
-		fmtNum(stats.TotalExpense), pct,
-		fmtNum(remaining),
+		fmtNum(stats.TotalExpense), pct, savingsLine,
+		fmtNum(remaining), balanceLine,
 		daysLeft,
 		fmtNum(daily),
 	)

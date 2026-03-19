@@ -74,10 +74,10 @@ func (c *Client) AppendExpense(userID int64, e Expense) (string, error) {
 
 	now := time.Now()
 	cat := e.Category
-	amt := -e.Amount // expenses are negative
+	amt := -e.Amount
 	if e.IsIncome {
 		cat = "Приход"
-		amt = e.Amount // income is positive
+		amt = e.Amount
 	}
 	row := []interface{}{
 		now.Format("02.01.2006"),
@@ -133,6 +133,69 @@ func (c *Client) GetMonthStats(userID int64, monthKey string) (*MonthStats, erro
 		}
 	}
 	return stats, nil
+}
+
+// AddSaving writes one entry to the user's dedicated savings sheet.
+// Sheet name: "<userID>_savings", columns: Дата | Время | Сумма | Описание | Месяц.
+func (c *Client) AddSaving(userID int64, amount float64, desc string) error {
+	sheetName := savingsSheetName(userID)
+	headers := []interface{}{"Дата", "Время", "Сумма", "Описание", "Месяц"}
+	if err := c.ensureSheet(sheetName, headers); err != nil {
+		return fmt.Errorf("ensure savings sheet: %w", err)
+	}
+	now := time.Now()
+	row := []interface{}{
+		now.Format("02.01.2006"),
+		now.Format("15:04"),
+		amount,
+		desc,
+		now.Format("2006-01"),
+	}
+	_, err := c.svc.Spreadsheets.Values.
+		Append(c.spreadsheetID, sheetName+"!A1", &sheets.ValueRange{Values: [][]interface{}{row}}).
+		ValueInputOption("USER_ENTERED").
+		Do()
+	return err
+}
+
+// GetSavingsBalance returns the all-time total of the user's savings.
+func (c *Client) GetSavingsBalance(userID int64) (float64, error) {
+	return c.sumSavingsCol(userID, "")
+}
+
+// GetMonthlySavings returns the total savings added in the given month key (e.g. "2026-03").
+func (c *Client) GetMonthlySavings(userID int64, monthKey string) (float64, error) {
+	return c.sumSavingsCol(userID, monthKey)
+}
+
+// sumSavingsCol reads the savings sheet and sums col C (Сумма).
+// If monthKey is non-empty, only rows matching col E (Месяц) are counted.
+func (c *Client) sumSavingsCol(userID int64, monthKey string) (float64, error) {
+	resp, err := c.svc.Spreadsheets.Values.
+		Get(c.spreadsheetID, savingsSheetName(userID)+"!A2:E100000").
+		Do()
+	if err != nil {
+		return 0, nil // sheet doesn't exist yet
+	}
+	var total float64
+	for _, row := range resp.Values {
+		if len(row) < 3 {
+			continue
+		}
+		if monthKey != "" && (len(row) < 5 || fmt.Sprint(row[4]) != monthKey) {
+			continue
+		}
+		amt, err := parseAmount(row[2])
+		if err != nil {
+			continue
+		}
+		total += amt
+	}
+	return total, nil
+}
+
+func savingsSheetName(userID int64) string {
+	return strconv.FormatInt(userID, 10) + "_savings"
 }
 
 // EnsureUser registers the user in the "Пользователи" sheet if not already present.

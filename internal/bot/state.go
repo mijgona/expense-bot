@@ -6,10 +6,11 @@ import "sync"
 type dialogStep int
 
 const (
-	stepNone        dialogStep = iota
-	stepChooseCat              // waiting for category selection (button press)
-	stepEnterAmount            // waiting for "amount [description]" text
-	stepEnterIncome            // waiting for income amount [description]
+	stepNone         dialogStep = iota
+	stepChooseCat               // waiting for category selection (button press)
+	stepEnterAmount             // waiting for "amount [description]" text
+	stepEnterIncome             // waiting for income amount [description]
+	stepEnterSavings            // waiting for savings amount [description]
 )
 
 // dialog holds per-user conversation state.

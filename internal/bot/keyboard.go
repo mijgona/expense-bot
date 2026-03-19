@@ -17,6 +17,7 @@ func mainKeyboard() tgbotapi.ReplyKeyboardMarkup {
 			tgbotapi.NewKeyboardButton("💰 Остаток"),
 		),
 		tgbotapi.NewKeyboardButtonRow(
+			tgbotapi.NewKeyboardButton("🏦 Накопления"),
 			tgbotapi.NewKeyboardButton("📋 Открыть таблицу"),
 		),
 	)
