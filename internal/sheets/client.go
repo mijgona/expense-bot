@@ -158,6 +158,11 @@ func (c *Client) AddSaving(userID int64, amount float64, desc string) error {
 	return err
 }
 
+// WithdrawSaving writes a negative entry to the savings sheet (reduces balance).
+func (c *Client) WithdrawSaving(userID int64, amount float64, desc string) error {
+	return c.AddSaving(userID, -amount, desc)
+}
+
 // GetSavingsBalance returns the all-time total of the user's savings.
 func (c *Client) GetSavingsBalance(userID int64) (float64, error) {
 	return c.sumSavingsCol(userID, "")
