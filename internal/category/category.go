@@ -10,18 +10,19 @@ type Category struct {
 // All returns the full list of expense categories.
 func All() []Category {
 	return []Category{
-		{Name: "Еда", Label: "🍽 Еда/Продукты", Limit: 3500},
-		{Name: "Аренда", Label: "🏠 Аренда/ЖКХ", Limit: 4000},
+		{Name: "Еда", Label: "🍽 Еда/Продукты", Limit: 2000},
+		{Name: "Аренда", Label: "🏠 Аренда/ЖКХ", Limit: 300},
 		{Name: "Транспорт", Label: "🚗 Транспорт", Limit: 1000},
-		{Name: "Одежда", Label: "👗 Одежда", Limit: 800},
-		{Name: "Здоровье", Label: "💊 Здоровье", Limit: 800},
-		{Name: "Связь", Label: "📱 Связь", Limit: 500},
-		{Name: "Развлечения", Label: "🎭 Развлечения", Limit: 700},
-		{Name: "Накопления", Label: "💰 Накопления", Limit: 2000},
-		{Name: "Обучение", Label: "📚 Обучение", Limit: 1500},
-		{Name: "Обучение детей", Label: "🎒 Обучение детей", Limit: 1500},
-		{Name: "На себя", Label: "💄 На себя", Limit: 700},
-		{Name: "Другое", Label: "🔧 Другое", Limit: 700},
+		{Name: "Одежда", Label: "👗 Одежда", Limit: 1000},
+		{Name: "Здоровье", Label: "💊 Здоровье", Limit: 500},
+		{Name: "Связь", Label: "📱 Связь", Limit: 200},
+		{Name: "Развлечения", Label: "🎭 Развлечения", Limit: 500},
+		{Name: "Накопления", Label: "💰 Накопления", Limit: 5450},
+		{Name: "Обучение", Label: "📚 Обучение", Limit: 200},
+		{Name: "Обучение детей", Label: "🎒 Обучение детей", Limit: 3000},
+		{Name: "На себя", Label: "💄 На себя", Limit: 1000},
+		{Name: "Бизнес", Label: "💼 Бизнес", Limit: 300},
+		{Name: "Другое", Label: "🔧 Другое", Limit: 500},
 	}
 }
 
