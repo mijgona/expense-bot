@@ -32,34 +32,33 @@ func formatReport(stats *sheets.MonthStats, salary int, monthKey string, savings
 		sb.WriteString(fmt.Sprintf("💎 Всего накоплено: *%s с.*\n", fmtNum(savingsBalance)))
 	}
 
-	if len(stats.Totals) == 0 {
-		sb.WriteString("\n_Расходов за этот период нет_")
-		return sb.String()
-	}
-
 	sb.WriteString("\n─────────────────\n")
 
-	// Sort categories by amount descending.
+	// Show all categories sorted by amount descending.
 	type entry struct {
-		name string
-		amt  float64
+		cat *category.Category
+		amt float64
 	}
-	entries := make([]entry, 0, len(stats.Totals))
-	for k, v := range stats.Totals {
-		entries = append(entries, entry{k, v})
+	allCats := category.All()
+	entries := make([]entry, len(allCats))
+	for i, cat := range allCats {
+		c := cat
+		entries[i] = entry{cat: &c, amt: stats.Totals[cat.Name]}
 	}
 	sort.Slice(entries, func(i, j int) bool { return entries[i].amt > entries[j].amt })
 
 	for _, e := range entries {
-		cat := category.FindByName(e.name)
-		if cat == nil {
-			sb.WriteString(fmt.Sprintf("• %s: *%s с.*\n", e.name, fmtNum(e.amt)))
-			continue
-		}
-		pct := e.amt / float64(cat.Limit) * 100
+		pct := e.amt / float64(e.cat.Limit) * 100
 		icon := statusIcon(pct)
 		sb.WriteString(fmt.Sprintf("%s %s: *%s/%s с.* (%.0f%%)\n",
-			icon, cat.Label, fmtNum(e.amt), fmtNum(float64(cat.Limit)), pct))
+			icon, e.cat.Label, fmtNum(e.amt), fmtNum(float64(e.cat.Limit)), pct))
+	}
+
+	// Unknown categories (old data not in current list).
+	for name, amt := range stats.Totals {
+		if category.FindByName(name) == nil {
+			sb.WriteString(fmt.Sprintf("• %s: *%s с.*\n", name, fmtNum(amt)))
+		}
 	}
 	return sb.String()
 }
