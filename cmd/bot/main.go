@@ -89,7 +89,7 @@ func selfPing() {
 		return // not running on Render
 	}
 	url += "/health"
-	for range time.Tick(10 * time.Minute) {
+	for range time.Tick(45 * time.Second) {
 		resp, err := http.Get(url)
 		if err != nil {
 			log.Printf("self-ping error: %v", err)
