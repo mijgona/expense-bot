@@ -231,6 +231,55 @@ func (c *Client) EnsureUser(userID int64, firstName, username string) error {
 	return err
 }
 
+// GetCarryOver returns the net cash balance accumulated across all months
+// strictly before upToMonthKey (e.g. "2026-04").
+// Formula: Σ signed main-sheet amounts − Σ savings amounts for those months.
+func (c *Client) GetCarryOver(userID int64, upToMonthKey string) (float64, error) {
+	sheetName := strconv.FormatInt(userID, 10)
+
+	var total float64
+
+	resp, err := c.svc.Spreadsheets.Values.
+		Get(c.spreadsheetID, sheetName+"!A2:F100000").
+		Do()
+	if err == nil {
+		for _, row := range resp.Values {
+			if len(row) < 6 {
+				continue
+			}
+			if fmt.Sprint(row[5]) >= upToMonthKey {
+				continue
+			}
+			amt, err := parseAmount(row[3])
+			if err != nil {
+				continue
+			}
+			total += amt // income positive, expenses negative
+		}
+	}
+
+	savResp, err := c.svc.Spreadsheets.Values.
+		Get(c.spreadsheetID, savingsSheetName(userID)+"!A2:E100000").
+		Do()
+	if err == nil {
+		for _, row := range savResp.Values {
+			if len(row) < 5 {
+				continue
+			}
+			if fmt.Sprint(row[4]) >= upToMonthKey {
+				continue
+			}
+			amt, err := parseAmount(row[2])
+			if err != nil {
+				continue
+			}
+			total -= amt // savings deposit reduces liquid balance
+		}
+	}
+
+	return total, nil
+}
+
 // ── private helpers ───────────────────────────────────────────────────────────
 
 // ensureSheet creates the named sheet with the given header row if it doesn't exist.

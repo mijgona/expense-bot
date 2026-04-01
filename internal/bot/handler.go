@@ -345,13 +345,14 @@ func (h *Handler) handleReport(chatID int64, userID int64, monthKey string) {
 	}
 	savingsBalance, _ := h.sheets.GetSavingsBalance(userID)
 	monthlySavings, _ := h.sheets.GetMonthlySavings(userID, monthKey)
+	carryOver, _ := h.sheets.GetCarryOver(userID, monthKey)
 
 	now := time.Now()
 	prevTime := now.AddDate(0, -1, 0)
 	prevKey := prevTime.Format("2006-01")
 	kb := reportNavKeyboard(monthKey, prevKey, ruMonth(prevTime.Month()))
 
-	text := formatReport(stats, h.salary, monthKey, savingsBalance, monthlySavings)
+	text := formatReport(stats, monthKey, savingsBalance, monthlySavings, carryOver)
 	h.sendMarkdown(chatID, text, &kb)
 }
 
@@ -363,7 +364,8 @@ func (h *Handler) handleReportCallback(chatID int64, userID int64, msgID int, mo
 	}
 	savingsBalance, _ := h.sheets.GetSavingsBalance(userID)
 	monthlySavings, _ := h.sheets.GetMonthlySavings(userID, monthKey)
-	text := formatReport(stats, h.salary, monthKey, savingsBalance, monthlySavings)
+	carryOver, _ := h.sheets.GetCarryOver(userID, monthKey)
+	text := formatReport(stats, monthKey, savingsBalance, monthlySavings, carryOver)
 	h.editText(chatID, msgID, text, nil)
 }
 
@@ -378,8 +380,9 @@ func (h *Handler) handleBalance(chatID int64, userID int64) {
 	}
 	savingsBalance, _ := h.sheets.GetSavingsBalance(userID)
 	monthlySavings, _ := h.sheets.GetMonthlySavings(userID, monthKey)
+	carryOver, _ := h.sheets.GetCarryOver(userID, monthKey)
 	kb := mainKeyboard()
-	h.sendMarkdownWithReply(chatID, formatBalance(stats, h.salary, savingsBalance, monthlySavings), kb)
+	h.sendMarkdownWithReply(chatID, formatBalance(stats, savingsBalance, monthlySavings, carryOver), kb)
 }
 
 func (h *Handler) recordAndConfirm(chatID int64, userID int64, msgID int, catName string, amt float64, desc string, isIncome bool) {
