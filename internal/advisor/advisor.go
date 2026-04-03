@@ -99,8 +99,13 @@ func (a *Advisor) runForUser(userID int64) error {
 		return fmt.Errorf("claude: %w", err)
 	}
 
-	msg := tgbotapi.NewMessage(userID, "📊 Финансовый отчёт\n\n"+advice)
-	_, err = a.api.Send(msg)
+	now := time.Now().Format("2006-01-02")
+	doc := tgbotapi.NewDocument(userID, tgbotapi.FileBytes{
+		Name:  "отчёт_" + now + ".txt",
+		Bytes: []byte(advice),
+	})
+	doc.Caption = "📊 Финансовый отчёт от " + now
+	_, err = a.api.Send(doc)
 	return err
 }
 
