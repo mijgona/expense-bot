@@ -14,6 +14,7 @@ type Config struct {
 	SpreadsheetID  string  `json:"spreadsheet_id"`
 	Salary         int     `json:"salary"`
 	AllowedUserIDs []int64 `json:"allowed_user_ids"`
+	GeminiAPIKey   string  `json:"gemini_api_key"`
 }
 
 // Load reads config from a JSON file.
@@ -57,6 +58,9 @@ func (c *Config) applyEnvOverrides() {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
 			c.Salary = n
 		}
+	}
+	if v := os.Getenv("GEMINI_API_KEY"); v != "" {
+		c.GeminiAPIKey = v
 	}
 	if v := os.Getenv("ALLOWED_USER_IDS"); v != "" {
 		c.AllowedUserIDs = nil

@@ -280,6 +280,87 @@ func (c *Client) GetCarryOver(userID int64, upToMonthKey string) (float64, error
 	return total, nil
 }
 
+// Goal represents a user-defined quarterly savings goal.
+// Sheet columns: Название | Целевая сумма | Квартал | Статус | Описание
+type Goal struct {
+	Name         string
+	TargetAmount float64
+	Quarter      string // e.g. "Q3 2026"
+	Status       string // "Активна" / "Выполнена"
+	Description  string
+}
+
+// GetGoals reads goals from the user's "{userID}_goals" sheet.
+// Returns nil slice if the sheet doesn't exist yet.
+func (c *Client) GetGoals(userID int64) ([]Goal, error) {
+	sheetName := strconv.FormatInt(userID, 10) + "_goals"
+	resp, err := c.svc.Spreadsheets.Values.
+		Get(c.spreadsheetID, sheetName+"!A2:E1000").
+		Do()
+	if err != nil {
+		return nil, nil // sheet doesn't exist yet
+	}
+	var goals []Goal
+	for _, row := range resp.Values {
+		if len(row) < 1 {
+			continue
+		}
+		g := Goal{Name: fmt.Sprint(row[0])}
+		if len(row) >= 2 {
+			g.TargetAmount, _ = parseAmount(row[1])
+		}
+		if len(row) >= 3 {
+			g.Quarter = fmt.Sprint(row[2])
+		}
+		if len(row) >= 4 {
+			g.Status = fmt.Sprint(row[3])
+		}
+		if len(row) >= 5 {
+			g.Description = fmt.Sprint(row[4])
+		}
+		goals = append(goals, g)
+	}
+	return goals, nil
+}
+
+// AddGoal appends a new goal row to the user's "{userID}_goals" sheet,
+// creating the sheet with headers if it doesn't exist yet.
+func (c *Client) AddGoal(userID int64, g Goal) error {
+	sheetName := strconv.FormatInt(userID, 10) + "_goals"
+	headers := []interface{}{"Название", "Целевая сумма (с.)", "Квартал", "Статус", "Описание"}
+	if err := c.ensureSheet(sheetName, headers); err != nil {
+		return fmt.Errorf("ensure goals sheet: %w", err)
+	}
+	row := []interface{}{g.Name, g.TargetAmount, g.Quarter, "Активна", g.Description}
+	_, err := c.svc.Spreadsheets.Values.
+		Append(c.spreadsheetID, sheetName+"!A1", &sheets.ValueRange{Values: [][]interface{}{row}}).
+		ValueInputOption("USER_ENTERED").
+		Do()
+	return err
+}
+
+// GetUsers returns all registered user IDs from the "Пользователи" sheet.
+func (c *Client) GetUsers() ([]int64, error) {
+	resp, err := c.svc.Spreadsheets.Values.
+		Get(c.spreadsheetID, usersSheet+"!A2:A10000").
+		Do()
+	if err != nil {
+		return nil, fmt.Errorf("read users sheet: %w", err)
+	}
+	var ids []int64
+	for _, row := range resp.Values {
+		if len(row) == 0 {
+			continue
+		}
+		id, err := strconv.ParseInt(fmt.Sprint(row[0]), 10, 64)
+		if err != nil {
+			continue
+		}
+		ids = append(ids, id)
+	}
+	return ids, nil
+}
+
 // ── private helpers ───────────────────────────────────────────────────────────
 
 // ensureSheet creates the named sheet with the given header row if it doesn't exist.

@@ -6,6 +6,7 @@ import (
 	"os"
 	"time"
 
+	"expense-bot/internal/advisor"
 	"expense-bot/internal/bot"
 	"expense-bot/internal/config"
 	"expense-bot/internal/sheets"
@@ -35,6 +36,10 @@ func main() {
 	}()
 
 	go selfPing()
+
+	adv := advisor.New(application.API(), sheetsClient, cfg.GeminiAPIKey, cfg.Salary)
+	application.SetAdvisor(adv)
+	go adv.Start()
 
 	application.Run()
 }

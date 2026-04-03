@@ -12,6 +12,8 @@ const (
 	stepEnterIncome                // waiting for income amount [description]
 	stepEnterSavings               // waiting for savings deposit amount [description]
 	stepWithdrawSavings            // waiting for savings withdrawal amount [description]
+	stepGoalName                   // waiting for new goal name text
+	stepGoalAmount                 // waiting for new goal target amount
 )
 
 // dialog holds per-user conversation state.
@@ -20,6 +22,8 @@ type dialog struct {
 	Category    string  // chosen category name
 	Amount      float64 // pre-filled amount (quick input)
 	Description string  // pre-filled description (quick input)
+	GoalName    string  // goal being created: name
+	GoalAmount  float64 // goal being created: target amount
 }
 
 // stateStore is a thread-safe in-memory map of chat ID → dialog.

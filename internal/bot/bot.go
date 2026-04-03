@@ -3,6 +3,7 @@ package bot
 import (
 	"log"
 
+	"expense-bot/internal/advisor"
 	"expense-bot/internal/config"
 	"expense-bot/internal/sheets"
 
@@ -25,6 +26,16 @@ func New(cfg *config.Config, sheetsClient *sheets.Client) (*Bot, error) {
 
 	h := newHandler(api, sheetsClient, cfg.Salary, cfg.SpreadsheetID, cfg.AllowedUserIDs)
 	return &Bot{api: api, handler: h}, nil
+}
+
+// API returns the underlying Telegram bot API client.
+func (b *Bot) API() *tgbotapi.BotAPI {
+	return b.api
+}
+
+// SetAdvisor wires the advisor into the handler so the "🤖 ИИ-отчёт" button works.
+func (b *Bot) SetAdvisor(adv *advisor.Advisor) {
+	b.handler.adv = adv
 }
 
 // Run starts the polling loop and blocks until it stops.

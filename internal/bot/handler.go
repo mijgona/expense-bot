@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"expense-bot/internal/advisor"
 	"expense-bot/internal/category"
 	"expense-bot/internal/sheets"
 
@@ -17,12 +18,14 @@ const (
 	callbackCat     = "cat:"
 	callbackReport  = "rep:"
 	callbackSavings = "sav:"
+	callbackGoal    = "goal:"
 )
 
 // Handler processes all incoming Telegram updates.
 type Handler struct {
 	bot          *tgbotapi.BotAPI
 	sheets       *sheets.Client
+	adv          *advisor.Advisor
 	salary       int
 	sheetID      string
 	states       *stateStore
@@ -82,6 +85,12 @@ func (h *Handler) HandleMessage(msg *tgbotapi.Message) {
 		case stepWithdrawSavings:
 			h.handleWithdrawSavingsInput(chatID, userID, text)
 			return
+		case stepGoalName:
+			h.handleGoalNameInput(chatID, text, d)
+			return
+		case stepGoalAmount:
+			h.handleGoalAmountInput(chatID, userID, text, d)
+			return
 		}
 	}
 
@@ -114,6 +123,10 @@ func (h *Handler) HandleMessage(msg *tgbotapi.Message) {
 		h.handleBalance(chatID, userID)
 	case "🏦 Накопления":
 		h.handleSavingsView(chatID, userID)
+	case "🎯 Цели":
+		h.handleGoals(chatID, userID)
+	case "🤖 ИИ-отчёт":
+		h.handleAdvisorReport(chatID, userID)
 	case "📋 Открыть таблицу":
 		kb := sheetLinkKeyboard(h.sheetID)
 		h.sendMarkdown(chatID, "👆 Нажми чтобы открыть:", &kb)
@@ -140,6 +153,8 @@ func (h *Handler) HandleCallback(query *tgbotapi.CallbackQuery) {
 		h.handleReportCallback(chatID, userID, msgID, data[len(callbackReport):])
 	case strings.HasPrefix(data, callbackSavings):
 		h.handleSavingsCallback(chatID, userID, msgID, data[len(callbackSavings):])
+	case strings.HasPrefix(data, callbackGoal):
+		h.handleGoalCallback(chatID, userID, msgID, data[len(callbackGoal):])
 	}
 }
 
@@ -439,6 +454,125 @@ func buildConfirmText(catName string, amt float64, desc, sheetTitle string, isIn
 		time.Now().Format("02.01.2006 15:04"),
 		sheetTitle,
 	)
+}
+
+// ── advisor ───────────────────────────────────────────────────────────────────
+
+func (h *Handler) handleAdvisorReport(chatID int64, userID int64) {
+	if h.adv == nil {
+		h.sendMarkdown(chatID, "❌ ИИ-советник не настроен. Добавьте `GEMINI_API_KEY`.", nil)
+		return
+	}
+	h.sendMarkdown(chatID, "⏳ Запрашиваю ИИ-анализ...", nil)
+	if err := h.adv.RunForUser(userID); err != nil {
+		log.Printf("advisor report: user %d: %v", userID, err)
+		h.sendMarkdown(chatID, fmt.Sprintf("❌ Ошибка: `%v`", err), nil)
+	}
+}
+
+// ── goals ─────────────────────────────────────────────────────────────────────
+
+func (h *Handler) handleGoals(chatID int64, userID int64) {
+	goals, err := h.sheets.GetGoals(userID)
+	if err != nil {
+		h.sendMarkdown(chatID, fmt.Sprintf("❌ Ошибка загрузки целей: `%v`", err), nil)
+		return
+	}
+	text := formatGoals(goals)
+	kb := goalsKeyboard()
+	h.sendMarkdown(chatID, text, &kb)
+}
+
+func (h *Handler) handleGoalCallback(chatID int64, userID int64, msgID int, action string) {
+	switch {
+	case action == "add":
+		h.states.set(chatID, &dialog{Step: stepGoalName})
+		h.editText(chatID, msgID, "🎯 *Новая цель*\n\nВведи *название* цели:\nНапример: `Машина` или `Отпуск`", nil)
+
+	case action == "cancel":
+		h.states.clear(chatID)
+		goals, _ := h.sheets.GetGoals(userID)
+		kb := goalsKeyboard()
+		h.editText(chatID, msgID, formatGoals(goals), &kb)
+
+	case strings.HasPrefix(action, "q:"):
+		quarter := action[2:]
+		d := h.states.get(chatID)
+		if d == nil || d.Step != stepGoalAmount || d.GoalName == "" || d.GoalAmount <= 0 {
+			h.states.clear(chatID)
+			return
+		}
+		h.states.clear(chatID)
+		err := h.sheets.AddGoal(userID, sheets.Goal{
+			Name:         d.GoalName,
+			TargetAmount: d.GoalAmount,
+			Quarter:      quarter,
+		})
+		if err != nil {
+			h.editText(chatID, msgID, fmt.Sprintf("❌ Ошибка сохранения: `%v`", err), nil)
+			return
+		}
+		h.editText(chatID, msgID, fmt.Sprintf(
+			"✅ *Цель сохранена!*\n\n🎯 %s\n💰 *%s с.*\n📅 %s",
+			d.GoalName, fmtNum(d.GoalAmount), quarter,
+		), nil)
+	}
+}
+
+func (h *Handler) handleGoalNameInput(chatID int64, text string, d *dialog) {
+	name := strings.TrimSpace(text)
+	if name == "" {
+		h.sendMarkdown(chatID, "❌ Название не может быть пустым. Введи название цели:", nil)
+		return
+	}
+	d.GoalName = name
+	d.Step = stepGoalAmount
+	h.states.set(chatID, d)
+	h.sendMarkdown(chatID, fmt.Sprintf("🎯 *%s*\n\n💰 Введи *целевую сумму* в сомони:\nНапример: `50000`", name), nil)
+}
+
+func (h *Handler) handleGoalAmountInput(chatID int64, userID int64, text string, d *dialog) {
+	amt, err := strconv.ParseFloat(strings.ReplaceAll(text, ",", "."), 64)
+	if err != nil || amt <= 0 {
+		h.sendMarkdown(chatID, "❌ Введи число больше нуля. Например: `50000`", nil)
+		return
+	}
+	d.GoalAmount = amt
+	d.Step = stepGoalAmount // stay in same step — next input is quarter via inline button
+	h.states.set(chatID, d)
+	kb := quarterKeyboard()
+	h.sendMarkdown(chatID, fmt.Sprintf(
+		"🎯 *%s* — *%s с.*\n\n📅 Выбери *квартал* для достижения цели:",
+		d.GoalName, fmtNum(amt),
+	), &kb)
+}
+
+func formatGoals(goals []sheets.Goal) string {
+	if len(goals) == 0 {
+		return "🎯 *Цели на квартал*\n\nЦелей ещё нет. Добавь первую!"
+	}
+	var sb strings.Builder
+	sb.WriteString("🎯 *Цели на квартал*\n\n")
+	for _, g := range goals {
+		status := g.Status
+		if status == "" {
+			status = "Активна"
+		}
+		icon := "🔵"
+		if status == "Выполнена" {
+			icon = "✅"
+		}
+		fmt.Fprintf(&sb, "%s *%s*\n", icon, g.Name)
+		fmt.Fprintf(&sb, "   💰 %s с.", fmtNum(g.TargetAmount))
+		if g.Quarter != "" {
+			fmt.Fprintf(&sb, " · 📅 %s", g.Quarter)
+		}
+		if g.Description != "" {
+			fmt.Fprintf(&sb, "\n   📝 _%s_", g.Description)
+		}
+		sb.WriteString("\n\n")
+	}
+	return strings.TrimRight(sb.String(), "\n")
 }
 
 // ── send helpers ──────────────────────────────────────────────────────────────
