@@ -99,8 +99,7 @@ func (a *Advisor) runForUser(userID int64) error {
 		return fmt.Errorf("claude: %w", err)
 	}
 
-	msg := tgbotapi.NewMessage(userID, "📊 *Финансовый отчёт за 3 дня*\n\n"+advice)
-	msg.ParseMode = "Markdown"
+	msg := tgbotapi.NewMessage(userID, "📊 Финансовый отчёт\n\n"+advice)
 	_, err = a.api.Send(msg)
 	return err
 }
