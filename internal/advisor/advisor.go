@@ -18,7 +18,7 @@ import (
 )
 
 const (
-	geminiAPIURL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent"
+	geminiAPIURL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro-002:generateContent"
 	interval     = 72 * time.Hour
 )
 
@@ -44,7 +44,7 @@ func New(api *tgbotapi.BotAPI, sheetsClient *sheets.Client, apiKey string, salar
 // Call as: go advisor.Start()
 func (a *Advisor) Start() {
 	if a.apiKey == "" {
-		log.Println("advisor: CLAUDE_API_KEY not set, skipping")
+		log.Println("advisor: GEMINI_API_KEY not set, skipping")
 		return
 	}
 	log.Printf("advisor: started, interval=%v", interval)
