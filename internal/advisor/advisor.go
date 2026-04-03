@@ -18,7 +18,7 @@ import (
 )
 
 const (
-	geminiAPIURL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro-002:generateContent"
+	geminiAPIURL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
 	interval     = 72 * time.Hour
 )
 
