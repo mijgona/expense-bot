@@ -101,7 +101,7 @@ func (a *Advisor) runForUser(userID int64) error {
 
 	now := time.Now().Format("2006-01-02")
 	doc := tgbotapi.NewDocument(userID, tgbotapi.FileBytes{
-		Name:  "отчёт_" + now + ".txt",
+		Name:  "отчёт_" + now + ".md",
 		Bytes: []byte(advice),
 	})
 	doc.Caption = "📊 Финансовый отчёт от " + now
@@ -193,7 +193,7 @@ type geminiResponse struct {
 func (a *Advisor) callGemini(prompt string) (string, error) {
 	body, err := json.Marshal(geminiRequest{
 		Contents:         []geminiContent{{Parts: []geminiPart{{Text: prompt}}}},
-		GenerationConfig: geminiGenConfig{MaxOutputTokens: 1024},
+		GenerationConfig: geminiGenConfig{MaxOutputTokens: 8192},
 	})
 	if err != nil {
 		return "", err
