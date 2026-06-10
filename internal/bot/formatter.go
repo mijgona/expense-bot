@@ -10,8 +10,16 @@ import (
 	"expense-bot/internal/sheets"
 )
 
+// formatCreditLine returns a formatted debt line when balance > 0, else empty string.
+func formatCreditLine(creditBalance float64) string {
+	if creditBalance <= 0 {
+		return ""
+	}
+	return fmt.Sprintf("\n💳 Долг по карте: *−%s с.*", fmtNum(creditBalance))
+}
+
 // formatReport builds a Markdown report string for the given month key (e.g. "2026-03").
-func formatReport(stats *sheets.MonthStats, monthKey string, savingsBalance, monthlySavings, carryOver float64) string {
+func formatReport(stats *sheets.MonthStats, monthKey string, savingsBalance, monthlySavings, carryOver, creditBalance float64) string {
 	t, _ := time.Parse("2006-01", monthKey)
 	income := stats.TotalIncome
 	remaining := carryOver + income - stats.TotalExpense - monthlySavings
@@ -30,6 +38,9 @@ func formatReport(stats *sheets.MonthStats, monthKey string, savingsBalance, mon
 
 	if savingsBalance > 0 {
 		sb.WriteString(fmt.Sprintf("💎 Всего накоплено: *%s с.*\n", fmtNum(savingsBalance)))
+	}
+	if creditLine := formatCreditLine(creditBalance); creditLine != "" {
+		sb.WriteString(creditLine + "\n")
 	}
 
 	sb.WriteString("\n─────────────────\n")
@@ -64,7 +75,7 @@ func formatReport(stats *sheets.MonthStats, monthKey string, savingsBalance, mon
 }
 
 // formatBalance builds a balance summary string.
-func formatBalance(stats *sheets.MonthStats, savingsBalance, monthlySavings, carryOver float64) string {
+func formatBalance(stats *sheets.MonthStats, savingsBalance, monthlySavings, carryOver, creditBalance float64) string {
 	now := time.Now()
 	income := stats.TotalIncome
 	remaining := carryOver + income - stats.TotalExpense - monthlySavings
@@ -96,7 +107,7 @@ func formatBalance(stats *sheets.MonthStats, savingsBalance, monthlySavings, car
 			"%s"+
 			"💵 Приход: *%s с.*\n"+
 			"💸 Расход: *%s с.* (%.1f%%)%s\n"+
-			"💚 Остаток: *%s с.*%s\n\n"+
+			"💚 Остаток: *%s с.*%s%s\n\n"+
 			"📅 Осталось дней: *%d*\n"+
 			"📊 На день: *%s с.*",
 		balanceIcon(remaining, base),
@@ -104,7 +115,7 @@ func formatBalance(stats *sheets.MonthStats, savingsBalance, monthlySavings, car
 		carryLine,
 		fmtNum(income),
 		fmtNum(stats.TotalExpense), pct, savingsLine,
-		fmtNum(remaining), balanceLine,
+		fmtNum(remaining), balanceLine, formatCreditLine(creditBalance),
 		daysLeft,
 		fmtNum(daily),
 	)

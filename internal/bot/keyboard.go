@@ -27,9 +27,24 @@ func mainKeyboard() tgbotapi.ReplyKeyboardMarkup {
 			tgbotapi.NewKeyboardButton("🤖 ИИ-отчёт"),
 			tgbotapi.NewKeyboardButton("📋 Открыть таблицу"),
 		),
+		tgbotapi.NewKeyboardButtonRow(
+			tgbotapi.NewKeyboardButton("💳 Кредитная карта"),
+		),
 	)
 	kb.ResizeKeyboard = true
 	return kb
+}
+
+func creditKeyboard() tgbotapi.InlineKeyboardMarkup {
+	return tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("➕ Расход по карте", "crd:expense"),
+			tgbotapi.NewInlineKeyboardButtonData("💳 Погасить кредит", "crd:repay"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("📊 Баланс карты", "crd:balance"),
+		),
+	)
 }
 
 // goalsKeyboard shows an inline button to add a new goal.

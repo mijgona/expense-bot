@@ -14,16 +14,18 @@ const (
 	stepWithdrawSavings            // waiting for savings withdrawal amount [description]
 	stepGoalName                   // waiting for new goal name text
 	stepGoalAmount                 // waiting for new goal target amount
+	stepEnterRepayment             // waiting for credit card repayment amount
 )
 
 // dialog holds per-user conversation state.
 type dialog struct {
-	Step        dialogStep
-	Category    string  // chosen category name
-	Amount      float64 // pre-filled amount (quick input)
-	Description string  // pre-filled description (quick input)
-	GoalName    string  // goal being created: name
-	GoalAmount  float64 // goal being created: target amount
+	Step         dialogStep
+	Category     string  // chosen category name
+	Amount       float64 // pre-filled amount (quick input)
+	Description  string  // pre-filled description (quick input)
+	GoalName     string  // goal being created: name
+	GoalAmount   float64 // goal being created: target amount
+	IsCreditCard bool    // when true, expense is routed to the _credit sheet
 }
 
 // stateStore is a thread-safe in-memory map of chat ID → dialog.

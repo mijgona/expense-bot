@@ -1,0 +1,13 @@
+config.json
+credentials.json
+*.exe
+*.test
+*.out
+.DS_Store
+.idea
+
+specs/
+.specify/
+.claude/
+CLAUDE.md
+config.yaml

@@ -203,6 +203,117 @@ func savingsSheetName(userID int64) string {
 	return strconv.FormatInt(userID, 10) + "_savings"
 }
 
+func creditSheetName(userID int64) string {
+	return strconv.FormatInt(userID, 10) + "_credit"
+}
+
+// AppendCreditExpense writes a positive-amount row to the user's _credit sheet.
+// Columns: Дата | Время | Категория | Сумма | Описание | Месяц.
+func (c *Client) AppendCreditExpense(userID int64, e Expense) error {
+	sheetName := creditSheetName(userID)
+	headers := []interface{}{"Дата", "Время", "Категория", "Сумма", "Описание", "Месяц"}
+	if err := c.ensureSheet(sheetName, headers); err != nil {
+		return fmt.Errorf("ensure credit sheet: %w", err)
+	}
+	now := time.Now()
+	row := []interface{}{
+		now.Format("02.01.2006"),
+		now.Format("15:04"),
+		e.Category,
+		e.Amount, // positive: debt increases
+		e.Description,
+		now.Format("2006-01"),
+	}
+	_, err := c.svc.Spreadsheets.Values.
+		Append(c.spreadsheetID, sheetName+"!A1", &sheets.ValueRange{Values: [][]interface{}{row}}).
+		ValueInputOption("USER_ENTERED").
+		Do()
+	return err
+}
+
+// AddCreditRepayment records a repayment: negative row in _credit sheet (debt decreases)
+// and a cash outflow row in the main sheet (category "Погашение кредита").
+func (c *Client) AddCreditRepayment(userID int64, amount float64, desc string) error {
+	sheetName := creditSheetName(userID)
+	headers := []interface{}{"Дата", "Время", "Категория", "Сумма", "Описание", "Месяц"}
+	if err := c.ensureSheet(sheetName, headers); err != nil {
+		return fmt.Errorf("ensure credit sheet: %w", err)
+	}
+	now := time.Now()
+	row := []interface{}{
+		now.Format("02.01.2006"),
+		now.Format("15:04"),
+		"Погашение",
+		-amount, // negative: debt decreases
+		desc,
+		now.Format("2006-01"),
+	}
+	if _, err := c.svc.Spreadsheets.Values.
+		Append(c.spreadsheetID, sheetName+"!A1", &sheets.ValueRange{Values: [][]interface{}{row}}).
+		ValueInputOption("USER_ENTERED").
+		Do(); err != nil {
+		return err
+	}
+	// Also record cash outflow in main sheet so GetCarryOver stays correct.
+	_, err := c.AppendExpense(userID, Expense{
+		Category:    "Погашение кредита",
+		Amount:      amount,
+		Description: desc,
+	})
+	return err
+}
+
+// GetCreditBalance returns the net outstanding credit balance (all-time).
+// Positive = debt; zero when sheet is missing.
+func (c *Client) GetCreditBalance(userID int64) (float64, error) {
+	resp, err := c.svc.Spreadsheets.Values.
+		Get(c.spreadsheetID, creditSheetName(userID)+"!D2:D100000").
+		Do()
+	if err != nil {
+		return 0, nil // sheet doesn't exist yet
+	}
+	var total float64
+	for _, row := range resp.Values {
+		if len(row) == 0 {
+			continue
+		}
+		amt, err := parseAmount(row[0])
+		if err != nil {
+			continue
+		}
+		total += amt
+	}
+	return total, nil
+}
+
+// GetMonthlyCreditStats returns charged and repaid totals for the given month key.
+func (c *Client) GetMonthlyCreditStats(userID int64, monthKey string) (charged, repaid float64, err error) {
+	resp, err := c.svc.Spreadsheets.Values.
+		Get(c.spreadsheetID, creditSheetName(userID)+"!A2:F100000").
+		Do()
+	if err != nil {
+		return 0, 0, nil // sheet doesn't exist yet
+	}
+	for _, row := range resp.Values {
+		if len(row) < 6 {
+			continue
+		}
+		if fmt.Sprint(row[5]) != monthKey {
+			continue
+		}
+		amt, err := parseAmount(row[3])
+		if err != nil {
+			continue
+		}
+		if amt > 0 {
+			charged += amt
+		} else {
+			repaid += -amt
+		}
+	}
+	return charged, repaid, nil
+}
+
 // EnsureUser registers the user in the "Пользователи" sheet if not already present.
 func (c *Client) EnsureUser(userID int64, firstName, username string) error {
 	if err := c.ensureSheet(usersSheet, []interface{}{"UserID", "Имя", "Username", "Дата регистрации"}); err != nil {
