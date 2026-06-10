@@ -19,6 +19,7 @@ const (
 	callbackReport  = "rep:"
 	callbackSavings = "sav:"
 	callbackGoal    = "goal:"
+	callbackCredit  = "crd:"
 )
 
 // Handler processes all incoming Telegram updates.
@@ -91,6 +92,9 @@ func (h *Handler) HandleMessage(msg *tgbotapi.Message) {
 		case stepGoalAmount:
 			h.handleGoalAmountInput(chatID, userID, text, d)
 			return
+		case stepEnterRepayment:
+			h.handleRepaymentInput(chatID, userID, text)
+			return
 		}
 	}
 
@@ -125,6 +129,8 @@ func (h *Handler) HandleMessage(msg *tgbotapi.Message) {
 		h.handleSavingsView(chatID, userID)
 	case "🎯 Цели":
 		h.handleGoals(chatID, userID)
+	case "💳 Кредитная карта":
+		h.handleCreditView(chatID, userID)
 	case "🤖 ИИ-отчёт":
 		h.handleAdvisorReport(chatID, userID)
 	case "📋 Открыть таблицу":
@@ -155,6 +161,8 @@ func (h *Handler) HandleCallback(query *tgbotapi.CallbackQuery) {
 		h.handleSavingsCallback(chatID, userID, msgID, data[len(callbackSavings):])
 	case strings.HasPrefix(data, callbackGoal):
 		h.handleGoalCallback(chatID, userID, msgID, data[len(callbackGoal):])
+	case strings.HasPrefix(data, callbackCredit):
+		h.handleCreditCallback(chatID, userID, msgID, data[len(callbackCredit):])
 	}
 }
 
@@ -197,8 +205,13 @@ func (h *Handler) handleAmountInput(chatID int64, userID int64, text string, d *
 		desc = parts[1]
 	}
 	catName := d.Category
+	isCreditCard := d.IsCreditCard
 	h.states.clear(chatID)
-	h.recordAndConfirm(chatID, userID, 0, catName, amt, desc, false)
+	if isCreditCard {
+		h.recordCreditAndConfirm(chatID, userID, catName, amt, desc)
+	} else {
+		h.recordAndConfirm(chatID, userID, 0, catName, amt, desc, false)
+	}
 }
 
 func (h *Handler) handleIncomeInput(chatID int64, userID int64, text string) {
@@ -361,13 +374,14 @@ func (h *Handler) handleReport(chatID int64, userID int64, monthKey string) {
 	savingsBalance, _ := h.sheets.GetSavingsBalance(userID)
 	monthlySavings, _ := h.sheets.GetMonthlySavings(userID, monthKey)
 	carryOver, _ := h.sheets.GetCarryOver(userID, monthKey)
+	creditBalance, _ := h.sheets.GetCreditBalance(userID)
 
 	now := time.Now()
 	prevTime := now.AddDate(0, -1, 0)
 	prevKey := prevTime.Format("2006-01")
 	kb := reportNavKeyboard(monthKey, prevKey, ruMonth(prevTime.Month()))
 
-	text := formatReport(stats, monthKey, savingsBalance, monthlySavings, carryOver)
+	text := formatReport(stats, monthKey, savingsBalance, monthlySavings, carryOver, creditBalance)
 	h.sendMarkdown(chatID, text, &kb)
 }
 
@@ -380,7 +394,8 @@ func (h *Handler) handleReportCallback(chatID int64, userID int64, msgID int, mo
 	savingsBalance, _ := h.sheets.GetSavingsBalance(userID)
 	monthlySavings, _ := h.sheets.GetMonthlySavings(userID, monthKey)
 	carryOver, _ := h.sheets.GetCarryOver(userID, monthKey)
-	text := formatReport(stats, monthKey, savingsBalance, monthlySavings, carryOver)
+	creditBalance, _ := h.sheets.GetCreditBalance(userID)
+	text := formatReport(stats, monthKey, savingsBalance, monthlySavings, carryOver, creditBalance)
 	h.editText(chatID, msgID, text, nil)
 }
 
@@ -396,8 +411,9 @@ func (h *Handler) handleBalance(chatID int64, userID int64) {
 	savingsBalance, _ := h.sheets.GetSavingsBalance(userID)
 	monthlySavings, _ := h.sheets.GetMonthlySavings(userID, monthKey)
 	carryOver, _ := h.sheets.GetCarryOver(userID, monthKey)
+	creditBalance, _ := h.sheets.GetCreditBalance(userID)
 	kb := mainKeyboard()
-	h.sendMarkdownWithReply(chatID, formatBalance(stats, savingsBalance, monthlySavings, carryOver), kb)
+	h.sendMarkdownWithReply(chatID, formatBalance(stats, savingsBalance, monthlySavings, carryOver, creditBalance), kb)
 }
 
 func (h *Handler) recordAndConfirm(chatID int64, userID int64, msgID int, catName string, amt float64, desc string, isIncome bool) {
@@ -573,6 +589,140 @@ func formatGoals(goals []sheets.Goal) string {
 		sb.WriteString("\n\n")
 	}
 	return strings.TrimRight(sb.String(), "\n")
+}
+
+// ── credit card ───────────────────────────────────────────────────────────────
+
+func (h *Handler) handleCreditView(chatID int64, userID int64) {
+	balance, _ := h.sheets.GetCreditBalance(userID)
+	kb := creditKeyboard()
+	var text string
+	if balance <= 0 {
+		text = "💳 *Кредитная карта*\n\nДолг по карте: *0 с.* 🎉"
+	} else {
+		text = fmt.Sprintf("💳 *Кредитная карта*\n\nОбщий долг: *%s с.*", fmtNum(balance))
+	}
+	h.sendMarkdown(chatID, text, &kb)
+}
+
+func (h *Handler) handleCreditCallback(chatID int64, userID int64, msgID int, action string) {
+	switch {
+	case action == "expense":
+		h.states.set(chatID, &dialog{Step: stepChooseCat, IsCreditCard: true})
+		kb := categoryKeyboard()
+		h.editText(chatID, msgID, "📂 *Выбери категорию расхода по карте:*", &kb)
+
+	case action == "balance":
+		monthKey := time.Now().Format("2006-01")
+		balance, _ := h.sheets.GetCreditBalance(userID)
+		charged, repaid, _ := h.sheets.GetMonthlyCreditStats(userID, monthKey)
+		kb := creditKeyboard()
+		var text string
+		if balance <= 0 {
+			text = "💳 *Кредитная карта*\n\nДолг по карте: *0 с.* 🎉"
+		} else {
+			month := ruMonth(time.Now().Month())
+			text = fmt.Sprintf(
+				"💳 *Кредитная карта*\n\nРасходы за %s: *−%s с.*\nПогашено за %s: *+%s с.*\n\nОбщий долг: *%s с.*",
+				month, fmtNum(charged), month, fmtNum(repaid), fmtNum(balance),
+			)
+		}
+		h.editText(chatID, msgID, text, &kb)
+
+	case action == "repay":
+		balance, _ := h.sheets.GetCreditBalance(userID)
+		if balance <= 0 {
+			h.editText(chatID, msgID, "💳 *Кредитная карта*\n\nДолг по карте отсутствует 🎉", nil)
+			return
+		}
+		h.states.set(chatID, &dialog{Step: stepEnterRepayment})
+		h.editText(chatID, msgID,
+			fmt.Sprintf("💳 Текущий долг: *%s с.*\n\nВведи *сумму* погашения:", fmtNum(balance)), nil)
+
+	case action == "cancel":
+		h.states.clear(chatID)
+		h.editText(chatID, msgID, "❌ Отменено", nil)
+
+	case strings.HasPrefix(action, "repay_confirm:"):
+		amtStr := action[len("repay_confirm:"):]
+		amt, err := strconv.ParseFloat(amtStr, 64)
+		if err != nil || amt <= 0 {
+			return
+		}
+		h.states.clear(chatID)
+		if err := h.sheets.AddCreditRepayment(userID, amt, "Погашение кредита"); err != nil {
+			h.editText(chatID, msgID, fmt.Sprintf("❌ Ошибка записи: `%v`", err), nil)
+			return
+		}
+		remaining, _ := h.sheets.GetCreditBalance(userID)
+		h.editText(chatID, msgID, fmt.Sprintf(
+			"✅ Погашено *%s с.*\n\nОстаток долга: *%s с.*",
+			fmtNum(amt), fmtNum(remaining),
+		), nil)
+	}
+}
+
+func (h *Handler) handleRepaymentInput(chatID int64, userID int64, text string) {
+	parts := strings.SplitN(text, " ", 2)
+	amt, err := strconv.ParseFloat(strings.ReplaceAll(parts[0], ",", "."), 64)
+	if err != nil || amt <= 0 {
+		h.sendMarkdown(chatID, "❌ Введи число. Например: `2000`", nil)
+		return
+	}
+	balance, _ := h.sheets.GetCreditBalance(userID)
+	if amt > balance {
+		overrunKb := tgbotapi.NewInlineKeyboardMarkup(
+			tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData(
+					fmt.Sprintf("Погасить %s с.", fmtNum(balance)),
+					fmt.Sprintf("crd:repay_confirm:%.2f", balance),
+				),
+				tgbotapi.NewInlineKeyboardButtonData("❌ Отмена", "crd:cancel"),
+			),
+		)
+		h.sendMarkdown(chatID,
+			fmt.Sprintf("⚠️ Сумма *%s с.* превышает долг *%s с.*", fmtNum(amt), fmtNum(balance)),
+			&overrunKb)
+		return
+	}
+	h.states.clear(chatID)
+	if err := h.sheets.AddCreditRepayment(userID, amt, "Погашение кредита"); err != nil {
+		kb := mainKeyboard()
+		h.sendMarkdownWithReply(chatID, fmt.Sprintf("❌ Ошибка записи: `%v`", err), kb)
+		return
+	}
+	remaining, _ := h.sheets.GetCreditBalance(userID)
+	kb := mainKeyboard()
+	h.sendMarkdownWithReply(chatID, fmt.Sprintf(
+		"✅ Погашено *%s с.*\n\nОстаток долга: *%s с.*",
+		fmtNum(amt), fmtNum(remaining),
+	), kb)
+}
+
+func (h *Handler) recordCreditAndConfirm(chatID int64, userID int64, catName string, amt float64, desc string) {
+	if err := h.sheets.AppendCreditExpense(userID, sheets.Expense{
+		Category:    catName,
+		Amount:      amt,
+		Description: desc,
+	}); err != nil {
+		kb := mainKeyboard()
+		h.sendMarkdownWithReply(chatID, fmt.Sprintf("❌ Ошибка записи: `%v`", err), kb)
+		return
+	}
+	cat := category.FindByName(catName)
+	label := catName
+	if cat != nil {
+		label = cat.Label
+	}
+	descStr := ""
+	if desc != "" {
+		descStr = "\n📝 _" + desc + "_"
+	}
+	kb := mainKeyboard()
+	h.sendMarkdownWithReply(chatID, fmt.Sprintf(
+		"✅ *Записано 💳*\n\n%s: *−%s с.*%s\n📅 %s",
+		label, fmtNum(amt), descStr, time.Now().Format("02.01.2006 15:04"),
+	), kb)
 }
 
 // ── send helpers ──────────────────────────────────────────────────────────────
