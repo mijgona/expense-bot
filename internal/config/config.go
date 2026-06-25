@@ -39,9 +39,9 @@ func Load(path string) (*Config, error) {
 
 // LoadFromEnv builds Config entirely from environment variables.
 // Required: BOT_TOKEN, SPREADSHEET_ID.
-// Optional: SALARY (default 16000).
+// Optional: SALARY (default 10000; set a real value via env/config).
 func LoadFromEnv() (*Config, error) {
-	cfg := &Config{Salary: 16000}
+	cfg := &Config{Salary: 10000}
 	cfg.applyEnvOverrides()
 	return cfg, cfg.validate()
 }

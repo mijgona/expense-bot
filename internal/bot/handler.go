@@ -141,7 +141,8 @@ func (h *Handler) HandleMessage(msg *tgbotapi.Message) {
 
 // HandleCallback routes inline-button taps.
 func (h *Handler) HandleCallback(query *tgbotapi.CallbackQuery) {
-	h.bot.Request(tgbotapi.NewCallback(query.ID, ""))
+	// Best-effort ack of the callback; a failed ack must not abort routing.
+	_, _ = h.bot.Request(tgbotapi.NewCallback(query.ID, ""))
 
 	userID := query.From.ID
 	chatID := query.Message.Chat.ID

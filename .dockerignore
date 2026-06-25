@@ -1,0 +1,31 @@
+# Secrets / local config — never bake into the image
+config.json
+credentials.json
+config.yaml
+.env*
+
+# VCS & project meta
+.git/
+.gitignore
+.dockerignore
+.idea/
+.vscode/
+.github/
+
+# Go build artifacts
+*.exe
+*.test
+*.out
+vendor/
+
+# Docs & spec-kit (not needed at runtime)
+README*.md
+ЗАПУСК.md
+CLAUDE.md
+specs/
+.specify/
+.claude/
+
+# OS noise
+.DS_Store
+Thumbs.db

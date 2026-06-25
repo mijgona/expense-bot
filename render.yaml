@@ -26,7 +26,7 @@ services:
         sync: false             # secret — set manually in dashboard
 
       - key: SALARY
-        value: "16000"          # change here or override in dashboard
+        sync: false             # your real value — set manually in dashboard
 
       - key: GOOGLE_CREDENTIALS_JSON
         sync: false             # paste the full contents of credentials.json
