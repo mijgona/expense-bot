@@ -95,7 +95,30 @@ export interface Summary {
   dailyBudget?: number | null
   /** Split mode, current month only; daysLeft / dailyBudget then refer to it. */
   nextPayday?: NextPayday | null
+  /** Spending pace for the month / pay period; current month only, null when budget ≤ 0 (008). */
+  pace?: Pace | null
+  /** Current quarter progress; current month only (008). */
+  quarter?: QuarterInfo | null
   categories: CategoryLine[]
+}
+
+export interface Pace {
+  /** Expenses (kind=expense) in the period, diram. */
+  spent: number
+  /** Money available in the period, diram. */
+  budget: number
+  /** Share of the period that has passed, today included (0..1). */
+  elapsed: number
+  period: 'month' | 'advance' | 'rest'
+}
+
+export interface QuarterInfo {
+  /** "Q4 2026" — same format as Goal.quarter. */
+  name: string
+  /** Share of the quarter that has passed (0..1). */
+  elapsed: number
+  /** Days left in the quarter, today included. */
+  daysLeft: number
 }
 
 export interface NewTransaction {

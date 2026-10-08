@@ -7,7 +7,8 @@ export type Screen =
   | { name: 'home' }
   | { name: 'add'; kind: AddKind }
   | { name: 'report'; month: string }
-  | { name: 'savings' }
+  /** mode 'deposit' preselects the deposit form (home «Отложить» / «Пополнить», 008). */
+  | { name: 'savings'; mode?: 'deposit' }
   | { name: 'credit' }
   | { name: 'goals' }
   | { name: 'advisor' }
@@ -17,9 +18,18 @@ export type Screen =
   /** Category management — opened only from Profile (feature 006). */
   | { name: 'categories' }
 
+/** Bottom tab bar sections (feature 008). */
+export type Tab = 'home' | 'history' | 'report' | 'profile'
+
 export interface Nav {
+  /** Opens a screen on top of the current tab (the tab bar hides). */
   push(screen: Screen): void
+  /** Closes the top screen; at the last one, returns to the tab root. */
   pop(): void
+  /** Current tab. */
+  tab: Tab
+  /** Switches tab and clears the stack; ignored for the current tab. */
+  setTab(tab: Tab): void
 }
 
 export const NavContext = createContext<Nav | null>(null)

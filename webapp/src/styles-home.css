@@ -1,0 +1,703 @@
+/* Design B «Карточки» (feature 008). Scoped to .ui-b; other screens keep the Telegram theme (styles.css).
+   Values mirror specs/008-home-cards-redesign/design/home-cards.html (light) and home-cards-dark.html (dark).
+   The scheme follows Telegram's light/dark mode via data-scheme (constitution IV v3.1.0). Contrast of every
+   text pair is checked by scripts/contrast.mjs. */
+
+/* Self-hosted variable fonts (SIL OFL, see /fonts/OFL.txt). No third-party requests at runtime. */
+@font-face {
+  font-family: 'Onest';
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url('/fonts/onest-cyrillic.woff2') format('woff2');
+  unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
+}
+@font-face {
+  font-family: 'Onest';
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url('/fonts/onest-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308,
+    U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Unbounded';
+  font-style: normal;
+  font-weight: 500 600;
+  font-display: swap;
+  src: url('/fonts/unbounded-cyrillic.woff2') format('woff2');
+  unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
+}
+@font-face {
+  font-family: 'Unbounded';
+  font-style: normal;
+  font-weight: 500 600;
+  font-display: swap;
+  src: url('/fonts/unbounded-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308,
+    U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+/* ── Tokens ─────────────────────────────────────────────────────────────── */
+
+.ui-b {
+  --ground: #eef2ef;
+  --card: #ffffff;
+  --ink: #0f1d17;
+  --muted: #56665f;
+  --line: rgba(15, 29, 23, 0.08);
+  --warn: #9a5b00;
+  --warn-bar: #c27c00;
+  --warn-tint: #f7ead6;
+  --danger: #c0352a;
+  --danger-tint: #f9e3e0;
+  --danger-icon-bg: rgba(192, 53, 42, 0.12);
+  /* accent #0e7a55 and its derivations */
+  --accent: #0e7a55;
+  --accent-fg: #0e7a55; /* accent used as text / icon colour */
+  --accent-ink: #0b5c40;
+  --deep: #093b2a;
+  --deep-border: transparent;
+  --deep-rings: 0.16;
+  --tint: #ddece7;
+  --tint2: #c5dfd6;
+  --glow: #87bdaa;
+
+  color: var(--ink);
+  font-family: 'Onest', 'Segoe UI', system-ui, sans-serif;
+  font-size: 16px;
+  line-height: 1.35;
+  -webkit-font-smoothing: antialiased;
+}
+
+.ui-b[data-scheme='dark'] {
+  --ground: #0d1210;
+  --card: #161d1a;
+  --ink: #e9efec;
+  --muted: #93a39c;
+  --line: rgba(255, 255, 255, 0.08);
+  --warn: #f0b04a;
+  --warn-bar: #d99a2b;
+  --warn-tint: rgba(240, 176, 74, 0.16);
+  --danger: #ff7a6b;
+  --danger-tint: rgba(255, 122, 107, 0.12);
+  --danger-icon-bg: rgba(255, 122, 107, 0.16);
+  --accent-fg: #62a991;
+  --accent-ink: #62a991;
+  --deep: #0a4732;
+  --deep-border: rgba(255, 255, 255, 0.06);
+  --deep-rings: 0.14;
+  --tint: #0d271e;
+  --tint2: #0d3527;
+  --glow: #87bdaa;
+}
+
+.ui-b button {
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.ui-b .ico {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  flex: none;
+}
+.ui-b .num {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.ui-b .display {
+  font-family: 'Unbounded', 'Onest', system-ui, sans-serif;
+}
+
+/* ── Home page ──────────────────────────────────────────────────────────── */
+
+.b-page {
+  min-height: 100vh;
+  background: var(--ground);
+}
+.b-main {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 14px 16px calc(96px + env(safe-area-inset-bottom));
+  box-sizing: border-box;
+}
+
+.b-header {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.b-header-date {
+  font-size: 14px;
+  color: var(--muted);
+}
+.b-header h1 {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── Main card ──────────────────────────────────────────────────────────── */
+
+.b-main-card {
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 20px;
+  border: 1px solid var(--deep-border);
+  border-radius: 24px;
+  background: var(--deep);
+  color: #ffffff;
+}
+.b-main-card > * {
+  position: relative;
+}
+.b-rings {
+  position: absolute !important;
+  right: -86px;
+  top: -96px;
+  fill: none;
+  stroke: #ffffff;
+  stroke-width: 1;
+  opacity: var(--deep-rings);
+  pointer-events: none;
+}
+.b-main-label {
+  font-size: 15px;
+  color: rgba(255, 255, 255, 0.78);
+}
+.b-balance {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  line-height: 1.05;
+  min-width: 0;
+}
+.b-balance-value {
+  font-size: 36px;
+  font-weight: 600;
+  letter-spacing: -0.8px;
+}
+.b-balance-value.long {
+  font-size: 28px;
+  letter-spacing: -0.6px;
+}
+.b-balance-value.xlong {
+  font-size: 23px;
+  letter-spacing: -0.5px;
+}
+.b-balance-cur {
+  font-size: 18px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.72);
+}
+.b-stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.b-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  padding: 10px 12px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.1);
+}
+.b-stat-label {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.78);
+}
+.b-stat-value {
+  font-size: 17px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.b-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.b-track {
+  position: relative;
+  display: block;
+  height: 6px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.18);
+}
+.b-fill {
+  display: block;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--glow);
+}
+.b-fill.warn {
+  background: #f0b04a;
+}
+.b-fill.over {
+  background: #ff9a8e;
+}
+.b-tick {
+  position: absolute;
+  top: -4px;
+  width: 2px;
+  height: 14px;
+  border-radius: 1px;
+  background: #ffffff;
+  transform: translateX(-1px);
+}
+.b-captions {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.78);
+}
+.b-divider {
+  height: 1px;
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.b-goals {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 44px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #ffffff !important;
+  text-align: left;
+  width: 100%;
+}
+.b-goals-icon {
+  width: 36px;
+  height: 36px;
+  flex: none;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.12);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.b-goals-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.b-goals-title {
+  font-size: 15px;
+  font-weight: 600;
+}
+.b-goals-chevron {
+  color: rgba(255, 255, 255, 0.78);
+}
+
+/* Skeleton while the summary loads */
+.b-skel {
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.14);
+  animation: b-pulse 1.2s ease-in-out infinite;
+}
+@keyframes b-pulse {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+.b-card-error {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  font-size: 15px;
+}
+.b-btn-light {
+  align-self: flex-start;
+  min-height: 44px;
+  padding: 0 16px;
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  border-radius: 12px;
+  background: transparent;
+  color: #ffffff !important;
+  font-weight: 600;
+}
+
+/* ── Quick actions ──────────────────────────────────────────────────────── */
+
+.b-quick {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+}
+.b-quick-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+.b-quick-tile {
+  width: 56px;
+  height: 56px;
+  max-width: 100%;
+  border-radius: 18px;
+  background: var(--card);
+  color: var(--accent-fg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.b-quick-btn.primary .b-quick-tile {
+  background: var(--accent);
+  color: #ffffff;
+}
+.b-quick-label {
+  font-size: 13px;
+  font-weight: 500;
+  text-align: center;
+  line-height: 1.2;
+}
+.b-quick-btn.primary .b-quick-label {
+  font-weight: 600;
+}
+@media (max-width: 359px) {
+  .b-quick {
+    gap: 4px;
+  }
+  .b-quick-tile {
+    width: 48px;
+    height: 48px;
+    border-radius: 16px;
+  }
+  .b-quick-label {
+    font-size: 12px;
+  }
+}
+
+/* ── Cards and blocks ───────────────────────────────────────────────────── */
+
+.b-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px 16px 16px;
+  border-radius: 20px;
+  background: var(--card);
+}
+.b-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.b-card-head h2 {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 600;
+}
+.b-link {
+  min-height: 44px;
+  margin: -10px -8px;
+  padding: 0 8px;
+  border: 0;
+  background: transparent;
+  color: var(--accent-fg) !important;
+  font-size: 15px;
+  font-weight: 500;
+}
+.b-limit {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.b-limit-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+}
+.b-limit-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.b-limit-amount {
+  font-size: 15px;
+  color: var(--muted);
+}
+.b-limit-amount b {
+  font-weight: 600;
+}
+.b-limit-amount b.warn {
+  color: var(--warn);
+}
+.b-limit-amount b.over {
+  color: var(--danger);
+}
+.b-bar {
+  height: 8px;
+  border-radius: 4px;
+}
+.b-bar > div {
+  height: 8px;
+  border-radius: 4px;
+}
+.b-bar.warn {
+  background: var(--warn-tint);
+}
+.b-bar.warn > div {
+  background: var(--warn-bar);
+}
+.b-bar.over {
+  background: var(--danger-tint);
+}
+.b-bar.over > div {
+  background: var(--danger);
+}
+.b-ok {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 15px;
+}
+.b-ok .ico {
+  color: var(--accent-fg);
+}
+
+.b-blocks {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.b-block {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 12px 12px 14px;
+  border-radius: 20px;
+  background: var(--card);
+}
+.b-block.debt {
+  background: var(--danger-tint);
+}
+.b-block.savings {
+  background: var(--tint);
+}
+.b-block-main {
+  flex: 1;
+  min-width: 0;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+}
+.b-block-icon {
+  width: 40px;
+  height: 40px;
+  flex: none;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--ground);
+  color: var(--muted);
+}
+.b-block.debt .b-block-icon {
+  background: var(--danger-icon-bg);
+  color: var(--danger);
+}
+.b-block.savings .b-block-icon {
+  background: var(--tint2);
+  color: var(--accent-fg);
+}
+.b-block-text {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.b-block-label {
+  font-size: 14px;
+  color: var(--muted);
+}
+.b-block-value {
+  font-size: 18px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.b-block.debt .b-block-value {
+  color: var(--danger);
+}
+.b-block.savings .b-block-value {
+  color: var(--accent-ink);
+}
+.b-block-value.neutral {
+  color: var(--ink);
+}
+.b-outline {
+  flex: none;
+  min-height: 44px;
+  padding: 0 16px;
+  border: 1px solid currentColor;
+  border-radius: 12px;
+  background: transparent;
+  font-weight: 600;
+}
+.b-block.debt .b-outline {
+  color: var(--danger) !important;
+}
+.b-block.savings .b-outline {
+  color: var(--accent-ink) !important;
+}
+
+/* ── Payday offer (007, restyled) ───────────────────────────────────────── */
+
+.b-payout {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px 12px 12px 14px;
+  border-radius: 20px;
+  background: var(--tint);
+}
+.b-payout-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+.b-payout-head .b-block-icon {
+  background: var(--tint2);
+  color: var(--accent-fg);
+}
+.b-payout-title {
+  font-size: 15px;
+  font-weight: 600;
+}
+.b-payout-amount {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--accent-ink);
+}
+.b-payout-sub {
+  font-size: 14px;
+  color: var(--muted);
+}
+.b-payout-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.b-btn {
+  min-height: 44px;
+  padding: 0 18px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--accent);
+  color: #ffffff !important;
+  font-weight: 600;
+}
+.b-btn:disabled {
+  opacity: 0.5;
+}
+.b-btn-ghost {
+  min-height: 44px;
+  padding: 0 16px;
+  border: 1px solid var(--accent-ink);
+  border-radius: 12px;
+  background: transparent;
+  color: var(--accent-ink) !important;
+  font-weight: 600;
+}
+.b-payout .field label {
+  color: var(--muted);
+}
+.b-payout .input {
+  background: var(--card);
+  color: var(--ink);
+  border-color: var(--line);
+}
+.b-payout .error-text {
+  color: var(--danger);
+}
+.b-payout-link {
+  align-self: flex-start;
+  min-height: 44px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent-ink) !important;
+  font-weight: 600;
+}
+
+/* ── Tab bar ────────────────────────────────────────────────────────────── */
+
+.b-tabbar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 10;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  padding: 6px 8px calc(8px + env(safe-area-inset-bottom));
+  border-top: 1px solid var(--line);
+  background: var(--card);
+}
+.b-tab {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  min-height: 52px;
+  border: 0;
+  background: transparent;
+  color: var(--muted) !important;
+  font-size: 12px;
+  font-weight: 500;
+}
+.b-tab[aria-current='page'] {
+  color: var(--accent-fg) !important;
+  font-weight: 600;
+}
+
+/* Telegram-themed tab roots (History, Report, Profile) leave room for the fixed tab bar. */
+.with-tabbar {
+  padding-bottom: calc(72px + env(safe-area-inset-bottom));
+}
