@@ -352,6 +352,30 @@ func (s *Store) ListGoals(ctx context.Context, userID int64) ([]store.Goal, erro
 	}
 }
 
+// GoalSavings sums savings deposits by goalId. Progress is read-time, so editing or deleting a
+// deposit needs no goal bookkeeping.
+func (s *Store) GoalSavings(ctx context.Context, userID int64) (map[string]int64, error) {
+	it := s.txs(userID).Where("kind", "==", string(ledger.KindSavingsDeposit)).Select("goalId", "amount").Documents(ctx)
+	defer it.Stop()
+	out := map[string]int64{}
+	for {
+		snap, err := it.Next()
+		if err == iterator.Done {
+			return out, nil
+		}
+		if err != nil {
+			return nil, fmt.Errorf("goal savings: %w", err)
+		}
+		var t store.Transaction
+		if err := snap.DataTo(&t); err != nil {
+			return nil, err
+		}
+		if t.GoalID != "" {
+			out[t.GoalID] += t.Amount
+		}
+	}
+}
+
 func (s *Store) AddGoal(ctx context.Context, userID int64, g store.Goal) (store.Goal, bool, error) {
 	if g.ID == "" {
 		return store.Goal{}, false, errors.New("goal id is required")

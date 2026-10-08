@@ -118,6 +118,9 @@ func (s *Store) UpdateTransaction(ctx context.Context, userID int64, id string, 
 		if p.Note != nil {
 			nw.Note = *p.Note
 		}
+		if p.GoalID != nil {
+			nw.GoalID = *p.GoalID
+		}
 		if p.Date != nil {
 			nw.OccurredAt = withDate(nw.OccurredAt, *p.Date)
 		}

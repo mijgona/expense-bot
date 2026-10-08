@@ -170,6 +170,9 @@ func (m *memStore) UpdateTransaction(_ context.Context, uid int64, id string, p 
 	if p.Note != nil {
 		nw.Note = *p.Note
 	}
+	if p.GoalID != nil {
+		nw.GoalID = *p.GoalID
+	}
 	if p.Date != nil {
 		t := cur.When().In(ledger.Location)
 		d := p.Date.In(ledger.Location)
@@ -346,6 +349,18 @@ func (m *memStore) ListGoals(_ context.Context, uid int64) ([]store.Goal, error)
 		out = append(out, g)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt.Before(out[j].CreatedAt) })
+	return out, nil
+}
+
+func (m *memStore) GoalSavings(_ context.Context, uid int64) (map[string]int64, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := map[string]int64{}
+	for _, t := range m.txs[uid] {
+		if t.Kind == ledger.KindSavingsDeposit && t.GoalID != "" {
+			out[t.GoalID] += t.Amount
+		}
+	}
 	return out, nil
 }
 

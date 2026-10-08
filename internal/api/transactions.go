@@ -21,6 +21,7 @@ type transactionDTO struct {
 	Category   *string     `json:"category"`
 	Amount     int64       `json:"amount"`
 	Note       string      `json:"note"`
+	GoalID     *string     `json:"goalId"`
 	Month      string      `json:"month"`
 	OccurredAt time.Time   `json:"occurredAt"`
 	CreatedAt  time.Time   `json:"createdAt"`
@@ -38,7 +39,40 @@ func toDTO(t store.Transaction) transactionDTO {
 		c := t.Category
 		d.Category = &c
 	}
+	if t.GoalID != "" {
+		g := t.GoalID
+		d.GoalID = &g
+	}
 	return d
+}
+
+// activeGoal reports whether id is one of the user's active goals (a deposit can be linked to it).
+func (s *Server) activeGoal(r *http.Request, id string) (bool, error) {
+	goals, err := s.store.ListGoals(r.Context(), userFrom(r.Context()).ID)
+	if err != nil {
+		return false, err
+	}
+	for _, g := range goals {
+		if g.ID == id {
+			return g.Status != "done", nil
+		}
+	}
+	return false, nil
+}
+
+// checkGoal validates a deposit's goal link; it returns a validation message or "".
+func (s *Server) checkGoal(r *http.Request, kind ledger.Kind, goalID string) (string, error) {
+	if goalID == "" {
+		return "", nil
+	}
+	if kind != ledger.KindSavingsDeposit {
+		return "Цель указывается только для пополнения накоплений", nil
+	}
+	ok, err := s.activeGoal(r, goalID)
+	if err != nil || ok {
+		return "", err
+	}
+	return "Выберите активную цель из списка", nil
 }
 
 // parseDate validates "YYYY-MM-DD" (Dushanbe), not after today.
@@ -62,6 +96,7 @@ type newTransaction struct {
 	Category string `json:"category"`
 	Note     string `json:"note"`
 	Date     string `json:"date"`
+	GoalID   string `json:"goalId"`
 }
 
 // handleAddTransaction records any ledger entry; idempotent by clientId.
@@ -105,6 +140,14 @@ func (s *Server) handleAddTransaction(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	if msg, err := s.checkGoal(r, kind, in.GoalID); err != nil {
+		writeStoreError(w, r, err)
+		return
+	} else if msg != "" {
+		validation(w, "goalId", msg)
+		return
+	}
+
 	now := ledger.Now()
 	occurred := now
 	if in.Date != "" {
@@ -123,6 +166,7 @@ func (s *Server) handleAddTransaction(w http.ResponseWriter, r *http.Request) {
 		Category:   in.Category,
 		Amount:     in.Amount,
 		Note:       note,
+		GoalID:     in.GoalID,
 		Month:      ledger.MonthKey(occurred),
 		Source:     "app",
 		OccurredAt: occurred.UTC(),
@@ -232,6 +276,7 @@ type transactionPatch struct {
 	Category  *string `json:"category"`
 	Note      *string `json:"note"`
 	Date      *string `json:"date"`
+	GoalID    *string `json:"goalId"` // "" unlinks
 }
 
 // handlePatchTransaction edits a record (kind is immutable).
@@ -249,7 +294,7 @@ func (s *Server) handlePatchTransaction(w http.ResponseWriter, r *http.Request) 
 		validation(w, "requestId", "Некорректный идентификатор запроса")
 		return
 	}
-	p := store.TransactionPatch{Version: in.Version, RequestID: in.RequestID, Amount: in.Amount, Category: in.Category}
+	p := store.TransactionPatch{Version: in.Version, RequestID: in.RequestID, Amount: in.Amount, Category: in.Category, GoalID: in.GoalID}
 	if in.Amount != nil {
 		if err := ledger.ValidateAmount(*in.Amount); err != nil {
 			validation(w, "amount", err.Error())
@@ -275,13 +320,26 @@ func (s *Server) handlePatchTransaction(w http.ResponseWriter, r *http.Request) 
 
 	uid := userFrom(r.Context()).ID
 	id := r.PathValue("id")
-	if in.Category != nil {
-		// Kind decides whether a category is allowed; read the current record.
-		cur, err := s.store.GetTransaction(r.Context(), uid, id)
-		if err != nil {
+	var cur store.Transaction
+	if in.Category != nil || in.GoalID != nil {
+		// Kind decides whether a category or goal is allowed; read the current record.
+		var err error
+		if cur, err = s.store.GetTransaction(r.Context(), uid, id); err != nil {
 			writeStoreError(w, r, err)
 			return
 		}
+	}
+	if in.GoalID != nil && *in.GoalID != cur.GoalID {
+		// Keeping the current goal is fine even if it was since marked done; a new link must be active.
+		if msg, err := s.checkGoal(r, cur.Kind, *in.GoalID); err != nil {
+			writeStoreError(w, r, err)
+			return
+		} else if msg != "" {
+			validation(w, "goalId", msg)
+			return
+		}
+	}
+	if in.Category != nil {
 		if !cur.Kind.NeedsCategory() {
 			validation(w, "category", "Для этой записи категория не нужна")
 			return

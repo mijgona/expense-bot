@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react'
 import { useNav } from '../context'
 import { useCategories } from '../lib/categories'
-import { ApiError, deleteTransaction, newClientId, patchTransaction } from '../lib/api'
+import { ApiError, deleteTransaction, listGoals, newClientId, patchTransaction } from '../lib/api'
 import { diramToInput, formatSomoni, parseAmountInput } from '../lib/money'
 import { formatDate, toDateInput, todayDushanbe } from '../lib/months'
 import { confirmAction, haptic, toast } from '../lib/telegram'
@@ -9,6 +9,8 @@ import type { Transaction, TransactionPatch } from '../lib/types'
 import { AmountInput } from '../components/AmountInput'
 import { CategoryGrid } from '../components/CategoryGrid'
 import { ErrorBanner } from '../components/ErrorBanner'
+import { GoalPicker } from '../components/GoalPicker'
+import { useAsync } from '../hooks'
 import { KIND_ICON, KIND_LABEL } from '../components/TransactionRow'
 
 interface FormValues {
@@ -16,6 +18,8 @@ interface FormValues {
   category: string | null
   note: string
   date: string
+  /** savings_deposit only; '' = no goal. */
+  goalId: string
 }
 
 function valuesOf(tx: Transaction): FormValues {
@@ -24,6 +28,7 @@ function valuesOf(tx: Transaction): FormValues {
     category: tx.category ?? null,
     note: tx.note ?? '',
     date: toDateInput(tx.occurredAt ?? tx.createdAt),
+    goalId: tx.goalId ?? '',
   }
 }
 
@@ -43,7 +48,11 @@ export function EditTransaction({ tx: initial }: { tx: Transaction }) {
   const requestId = useRef<string | null>(null)
 
   const needsCategory = base.kind === 'expense' || base.kind === 'credit_purchase'
+  const isDeposit = base.kind === 'savings_deposit'
+  const goals = useAsync(() => (isDeposit ? listGoals() : Promise.resolve(null)), [isDeposit])
   const orig = valuesOf(base)
+  // Active goals, plus the deposit's current goal even if it is already done.
+  const goalOptions = goals.data?.items.filter((g) => g.status !== 'done' || g.id === orig.goalId) ?? []
   const parsed = parseAmountInput(form.amount)
   const amountError = !parsed.ok ? parsed.error : null
   const dateError = form.date > today ? 'Дата не может быть в будущем' : !form.date ? 'Укажите дату' : null
@@ -60,7 +69,8 @@ export function EditTransaction({ tx: initial }: { tx: Transaction }) {
     (parsed.ok && parsed.diram !== base.amount) ||
     form.category !== orig.category ||
     form.note.trim() !== orig.note.trim() ||
-    form.date !== orig.date
+    form.date !== orig.date ||
+    form.goalId !== orig.goalId
   const canSave = changed && parsed.ok && !dateError && categoryOk && !saving && !deleting
 
   const apiErr = error instanceof ApiError ? error : null
@@ -94,6 +104,7 @@ export function EditTransaction({ tx: initial }: { tx: Transaction }) {
     if (needsCategory && form.category !== orig.category && form.category) body.category = form.category
     if (form.note.trim() !== orig.note.trim()) body.note = form.note.trim()
     if (form.date !== orig.date) body.date = form.date
+    if (isDeposit && form.goalId !== orig.goalId) body.goalId = form.goalId
     try {
       await patchTransaction(base.id, body)
       requestId.current = null
@@ -199,6 +210,17 @@ export function EditTransaction({ tx: initial }: { tx: Transaction }) {
             <CategoryGrid selected={form.category} onSelect={(c) => update({ category: c })} />
           )}
           {field === 'category' && <div className="error-text">{apiErr!.message}</div>}
+        </div>
+      )}
+
+      {isDeposit && goalOptions.length > 0 && (
+        <div className="card">
+          <GoalPicker
+            goals={goalOptions}
+            selected={form.goalId}
+            onSelect={(id) => update({ goalId: id })}
+            error={field === 'goalId' ? apiErr!.message : null}
+          />
         </div>
       )}
 

@@ -129,6 +129,8 @@ export interface NewTransaction {
   note?: string
   /** YYYY-MM-DD (Dushanbe), not after today; default today. */
   date?: string
+  /** savings_deposit only: the active goal this deposit funds. */
+  goalId?: string
 }
 
 export interface Transaction {
@@ -137,6 +139,8 @@ export interface Transaction {
   category?: string | null
   amount: number
   note: string
+  /** savings_deposit only: the goal it funds. */
+  goalId?: string | null
   month: string
   /** Business date/time; month derives from it. */
   occurredAt: string
@@ -153,6 +157,8 @@ export interface TransactionPatch {
   category?: string
   note?: string
   date?: string
+  /** savings_deposit only; "" unlinks the deposit from its goal. */
+  goalId?: string
 }
 
 export type HistoryGroup = 'expense' | 'income' | 'savings' | 'credit'
@@ -258,6 +264,9 @@ export interface Goal {
   quarter: string
   status: 'active' | 'done'
   note: string
+  /** Sum of deposits linked to this goal, diram. */
+  saved: number
+  /** saved / target, capped at 1. */
   progress: number
   version: number
 }

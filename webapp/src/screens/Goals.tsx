@@ -87,7 +87,6 @@ export function Goals() {
         <GoalCard
           key={goal.id + ':' + goal.version}
           goal={goal}
-          savingsBalance={g!.savingsBalance}
           quarters={quarters}
           onChanged={goals.reload}
           onConflict={onConflict}
@@ -98,7 +97,6 @@ export function Goals() {
         <GoalCard
           key={goal.id + ':' + goal.version}
           goal={goal}
-          savingsBalance={g!.savingsBalance}
           quarters={quarters}
           onChanged={goals.reload}
           onConflict={onConflict}
@@ -170,14 +168,13 @@ export function Goals() {
 
 interface CardProps {
   goal: Goal
-  savingsBalance: number
   quarters: string[]
   onChanged(): void
   onConflict(): void
 }
 
 /** One goal: progress, status toggle, inline edit, delete (FR-013). */
-function GoalCard({ goal, savingsBalance, quarters, onChanged, onConflict }: CardProps) {
+function GoalCard({ goal, quarters, onChanged, onConflict }: CardProps) {
   const [editing, setEditing] = useState(false)
   const [name, setName] = useState(goal.name)
   const [target, setTarget] = useState(diramToInput(goal.target))
@@ -343,7 +340,10 @@ function GoalCard({ goal, savingsBalance, quarters, onChanged, onConflict }: Car
       <div className="bar progress">
         <span style={{ width: `${pct}%` }} />
       </div>
-      <div className="hint">💎 из накоплений {formatSomoni(savingsBalance)}</div>
+      <div className="hint">
+        💎 отложено {formatSomoni(goal.saved)} из {formatSomoni(goal.target)}
+        {goal.saved < goal.target ? ` · осталось ${formatSomoni(goal.target - goal.saved)}` : ''}
+      </div>
       {goal.note && <div className="hint">📝 {goal.note}</div>}
       {error != null && <ErrorBanner error={error} />}
       <div className="goal-actions">

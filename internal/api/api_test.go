@@ -188,10 +188,37 @@ func TestGoals(t *testing.T) {
 	if code, _ := e.do(t, "POST", "/api/goals", auth, `{"clientId":"`+uuid2+`","name":"X","target":1,"quarter":"Q1 2000"}`); code != 400 {
 		t.Errorf("past quarter: %d", code)
 	}
-	e.do(t, "POST", "/api/transactions", auth, `{"clientId":"`+uuid2+`","kind":"savings_deposit","amount":150000}`)
-	_, b = e.do(t, "GET", "/api/goals", auth, "")
-	if p := b["items"].([]any)[0].(map[string]any)["progress"].(float64); p != 0.5 {
-		t.Errorf("progress = %v, want 0.5", p)
+	goal := func() map[string]any {
+		_, b := e.do(t, "GET", "/api/goals", auth, "")
+		return b["items"].([]any)[0].(map[string]any)
+	}
+	// A deposit without a goal doesn't fill any goal.
+	e.do(t, "POST", "/api/transactions", auth, `{"clientId":"`+uuid2+`","kind":"savings_deposit","amount":50000}`)
+	if g := goal(); num(g["saved"]) != 0 || g["progress"].(float64) != 0 {
+		t.Errorf("unlinked deposit filled the goal: %v", g)
+	}
+	// A deposit to the goal does.
+	const dep = "33333333-3333-4333-8333-333333333333"
+	code, b = e.do(t, "POST", "/api/transactions", auth, `{"clientId":"`+dep+`","kind":"savings_deposit","amount":150000,"goalId":"`+uuid1+`"}`)
+	if code != 201 || b["transaction"].(map[string]any)["goalId"] != uuid1 {
+		t.Fatalf("deposit to goal: %d %v", code, b)
+	}
+	if g := goal(); num(g["saved"]) != 150000 || g["progress"].(float64) != 0.5 {
+		t.Errorf("goal after deposit = %v, want saved 150000, progress 0.5", g)
+	}
+	// Only deposits take a goal, and only an existing active one.
+	if code, b := e.do(t, "POST", "/api/transactions", auth, `{"clientId":"44444444-4444-4444-8444-444444444444","kind":"savings_withdrawal","amount":100,"goalId":"`+uuid1+`"}`); code != 400 || b["error"].(map[string]any)["field"] != "goalId" {
+		t.Errorf("withdrawal with goal: %d %v", code, b)
+	}
+	if code, _ := e.do(t, "POST", "/api/transactions", auth, `{"clientId":"55555555-5555-4555-8555-555555555555","kind":"savings_deposit","amount":100,"goalId":"nope"}`); code != 400 {
+		t.Errorf("unknown goal: %d", code)
+	}
+	// Unlinking the deposit empties the goal again.
+	if code, b := e.do(t, "PATCH", "/api/transactions/"+dep, auth, `{"version":1,"requestId":"66666666-6666-4666-8666-666666666666","goalId":""}`); code != 200 || b["transaction"].(map[string]any)["goalId"] != nil {
+		t.Errorf("unlink: %d %v", code, b)
+	}
+	if g := goal(); num(g["saved"]) != 0 {
+		t.Errorf("goal after unlink = %v", g)
 	}
 }
 

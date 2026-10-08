@@ -100,8 +100,12 @@ func (a *Advisor) Generate(ctx context.Context, userID int64) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("goals: %w", err)
 	}
+	saved, err := a.store.GoalSavings(ctx, userID)
+	if err != nil {
+		return "", fmt.Errorf("goal savings: %w", err)
+	}
 	eff := ledger.NewEffective(u.FirstName, a.salary, u.Overrides())
-	prompt := buildPrompt(monthKey, eff, u.CategoryList(), month, u.SavingsBalance, goals)
+	prompt := buildPrompt(monthKey, eff, u.CategoryList(), month, u.SavingsBalance, goals, saved)
 	if mode, _, _ := payroll.Schedule(u, a.salary); mode == payroll.ModeSplit {
 		prompt = "ЗАРПЛАТА В ДВЕ ВЫПЛАТЫ: аванс около 15-го, остаток в последний день месяца (суммы — по фактическим приходам).\n" + prompt
 	}
@@ -115,7 +119,7 @@ func (a *Advisor) Generate(ctx context.Context, userID int64) (string, error) {
 // somoni converts diram to somoni for prompt text.
 func somoni(d int64) float64 { return float64(d) / ledger.PerSomoni }
 
-func buildPrompt(monthKey string, eff ledger.Effective, cats catalog.List, m ledger.Month, savings int64, goals []store.Goal) string {
+func buildPrompt(monthKey string, eff ledger.Effective, cats catalog.List, m ledger.Month, savings int64, goals []store.Goal, saved map[string]int64) string {
 	var sb strings.Builder
 
 	sb.WriteString("Ты финансовый советник. Проанализируй финансовое положение и дай конкретные советы на русском языке.\n\n")
@@ -149,8 +153,8 @@ func buildPrompt(monthKey string, eff ledger.Effective, cats catalog.List, m led
 			if g.Status == "done" {
 				status = "Выполнена"
 			}
-			fmt.Fprintf(&sb, "- %s: цель %.0f с., квартал %s, статус: %s\n",
-				g.Name, somoni(g.Target), g.Quarter, status)
+			fmt.Fprintf(&sb, "- %s: цель %.0f с., отложено на неё %.0f с., квартал %s, статус: %s\n",
+				g.Name, somoni(g.Target), somoni(saved[g.ID]), g.Quarter, status)
 			if g.Note != "" {
 				fmt.Fprintf(&sb, "  %s\n", g.Note)
 			}

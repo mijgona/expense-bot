@@ -87,6 +87,7 @@ type Transaction struct {
 	Kind          ledger.Kind `firestore:"kind"`
 	Category      string      `firestore:"category"`
 	Amount        int64       `firestore:"amount"`
+	GoalID        string      `firestore:"goalId,omitempty"` // savings_deposit only: the goal it funds
 	Note          string      `firestore:"note"`
 	Month         string      `firestore:"month"`
 	Source        string      `firestore:"source"`
@@ -114,6 +115,7 @@ type TransactionPatch struct {
 	Category  *string
 	Note      *string
 	Date      *time.Time
+	GoalID    *string // "" unlinks the deposit from its goal
 }
 
 // HistoryFilter selects records for the History screen.
@@ -210,6 +212,8 @@ type Store interface {
 	ListMonths(ctx context.Context, userID int64, from, to string) ([]ledger.Month, error)
 
 	ListGoals(ctx context.Context, userID int64) ([]Goal, error)
+	// GoalSavings sums savings deposits by goalId (deposits without a goal are left out).
+	GoalSavings(ctx context.Context, userID int64) (map[string]int64, error)
 	// AddGoal is idempotent by g.ID.
 	AddGoal(ctx context.Context, userID int64, g Goal) (stored Goal, created bool, err error)
 	UpdateGoal(ctx context.Context, userID int64, id string, p GoalPatch) (Goal, error)

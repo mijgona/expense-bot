@@ -19,24 +19,26 @@ type goalDTO struct {
 	Quarter  string  `json:"quarter"`
 	Status   string  `json:"status"`
 	Note     string  `json:"note"`
+	Saved    int64   `json:"saved"`
 	Progress float64 `json:"progress"`
 	Version  int64   `json:"version"`
 }
 
-func goalToDTO(g store.Goal, savings int64) goalDTO {
+// goalToDTO: saved is the sum of deposits linked to the goal; progress = saved / target, capped at 1.
+func goalToDTO(g store.Goal, saved int64) goalDTO {
 	status := g.Status
 	if status != "done" {
 		status = "active"
 	}
 	p := 0.0
-	if g.Target > 0 && savings > 0 {
-		p = min(float64(savings)/float64(g.Target), 1)
+	if g.Target > 0 && saved > 0 {
+		p = min(float64(saved)/float64(g.Target), 1)
 	}
 	v := g.Version
 	if v == 0 {
 		v = 1
 	}
-	return goalDTO{ID: g.ID, Name: g.Name, Target: g.Target, Quarter: g.Quarter, Status: status, Note: g.Note, Progress: p, Version: v}
+	return goalDTO{ID: g.ID, Name: g.Name, Target: g.Target, Quarter: g.Quarter, Status: status, Note: g.Note, Saved: saved, Progress: p, Version: v}
 }
 
 func (s *Server) handleListGoals(w http.ResponseWriter, r *http.Request) {
@@ -51,9 +53,14 @@ func (s *Server) handleListGoals(w http.ResponseWriter, r *http.Request) {
 		writeStoreError(w, r, err)
 		return
 	}
+	saved, err := s.store.GoalSavings(r.Context(), uid)
+	if err != nil {
+		writeStoreError(w, r, err)
+		return
+	}
 	items := make([]goalDTO, 0, len(goals))
 	for _, g := range goals {
-		items = append(items, goalToDTO(g, u.SavingsBalance))
+		items = append(items, goalToDTO(g, saved[g.ID]))
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"savingsBalance": u.SavingsBalance, "items": items})
 }
@@ -104,7 +111,7 @@ func (s *Server) handleAddGoal(w http.ResponseWriter, r *http.Request) {
 		writeStoreError(w, r, err)
 		return
 	}
-	u, err := s.store.GetUser(r.Context(), uid)
+	saved, err := s.store.GoalSavings(r.Context(), uid)
 	if err != nil {
 		writeStoreError(w, r, err)
 		return
@@ -113,7 +120,7 @@ func (s *Server) handleAddGoal(w http.ResponseWriter, r *http.Request) {
 	if created {
 		status = http.StatusCreated
 	}
-	writeJSON(w, status, goalToDTO(g, u.SavingsBalance))
+	writeJSON(w, status, goalToDTO(g, saved[g.ID]))
 }
 
 type goalPatch struct {
@@ -196,12 +203,12 @@ func (s *Server) handlePatchGoal(w http.ResponseWriter, r *http.Request) {
 		writeStoreError(w, r, err)
 		return
 	}
-	u, err := s.store.GetUser(r.Context(), uid)
+	saved, err := s.store.GoalSavings(r.Context(), uid)
 	if err != nil {
 		writeStoreError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, goalToDTO(g, u.SavingsBalance))
+	writeJSON(w, http.StatusOK, goalToDTO(g, saved[g.ID]))
 }
 
 // handleDeleteGoal deletes a goal; idempotent.

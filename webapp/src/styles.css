@@ -260,6 +260,17 @@ button {
   overflow-wrap: anywhere;
 }
 
+.cat-add {
+  color: var(--link);
+  font-weight: 500;
+}
+
+.cat-new {
+  display: grid;
+  gap: 8px;
+  margin-top: 8px;
+}
+
 .cat.selected {
   border-color: var(--btn);
   background: var(--section);
