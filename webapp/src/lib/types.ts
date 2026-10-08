@@ -11,6 +11,7 @@ export type Kind =
 export interface Category {
   name: string
   label: string
+  /** Effective per-user limit in diram; 0 = no limit. */
   limit: number
 }
 
@@ -18,6 +19,8 @@ export interface Session {
   user: {
     id: number
     firstName: string
+    /** Effective display name (profile override or firstName). */
+    displayName: string
     username: string
     registeredAt: string
     isNew: boolean
@@ -61,6 +64,8 @@ export interface NewTransaction {
   amount: number
   category?: string
   note?: string
+  /** YYYY-MM-DD (Dushanbe), not after today; default today. */
+  date?: string
 }
 
 export interface Transaction {
@@ -70,7 +75,75 @@ export interface Transaction {
   amount: number
   note: string
   month: string
+  /** Business date/time; month derives from it. */
+  occurredAt: string
+  /** When it was entered. */
   createdAt: string
+  editedAt: string | null
+  version: number
+}
+
+export interface TransactionPatch {
+  version: number
+  requestId: string
+  amount?: number
+  category?: string
+  note?: string
+  date?: string
+}
+
+export type HistoryGroup = 'expense' | 'income' | 'savings' | 'credit'
+
+export interface HistoryQuery {
+  group?: HistoryGroup
+  category?: string
+  month?: string
+  q?: string
+  cursor?: string
+  limit?: number
+}
+
+export interface HistoryPage {
+  items: Transaction[]
+  nextCursor: string | null
+  total: number
+  totalExact: boolean
+}
+
+export interface MonthAgg {
+  month: string
+  income: number
+  expense: number
+  savingsNet: number
+  creditCharged: number
+  creditRepaid: number
+  cashNet: number
+}
+
+export interface ProfileValue<T> {
+  value: T
+  default: T
+  isDefault: boolean
+}
+
+export interface ProfileLimit extends ProfileValue<number> {
+  name: string
+  label: string
+}
+
+export interface Profile {
+  telegram: { firstName: string; username: string }
+  displayName: ProfileValue<string>
+  salary: ProfileValue<number>
+  limits: ProfileLimit[]
+  updatedAt?: string | null
+}
+
+export interface ProfilePatch {
+  /** null resets to the default */
+  displayName?: string | null
+  salary?: number | null
+  limits?: Record<string, number | null>
 }
 
 export interface WriteResult {
@@ -86,6 +159,17 @@ export interface Goal {
   status: 'active' | 'done'
   note: string
   progress: number
+  version: number
+}
+
+export interface GoalPatch {
+  version: number
+  requestId: string
+  name?: string
+  target?: number
+  quarter?: string
+  note?: string
+  status?: 'active' | 'done'
 }
 
 export interface GoalsResponse {

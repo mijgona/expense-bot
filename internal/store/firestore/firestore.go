@@ -164,6 +164,12 @@ func (s *Store) AddTransaction(ctx context.Context, userID int64, t store.Transa
 		stored  store.Transaction
 		created bool
 	)
+	if t.OccurredAt.IsZero() {
+		t.OccurredAt = t.CreatedAt
+	}
+	if t.Version == 0 {
+		t.Version = 1
+	}
 	err := s.c.RunTransaction(ctx, func(ctx context.Context, tx *firestore.Transaction) error {
 		// All reads before writes.
 		existing, err := tx.Get(txRef)
@@ -177,25 +183,12 @@ func (s *Store) AddTransaction(ctx context.Context, userID int64, t store.Transa
 			created = false
 			return nil
 		}
-		var u store.User
-		usnap, err := tx.Get(userRef)
-		if err != nil && !notFound(err) {
+		// Chronological balance rule (constitution II): covers back-dated records too.
+		if err := s.checkBalance(ctx, tx, userID, t.Kind, "", &t); err != nil {
 			return err
-		}
-		if usnap != nil && usnap.Exists() {
-			if err := usnap.DataTo(&u); err != nil {
-				return err
-			}
 		}
 
 		d := ledger.Apply(t.Kind, t.Category, t.Amount)
-		if u.SavingsBalance+d.SavingsBalance < 0 {
-			return &store.LimitError{Err: store.ErrInsufficientSavings, Available: u.SavingsBalance}
-		}
-		if u.CreditDebt+d.CreditDebt < 0 {
-			return &store.LimitError{Err: store.ErrExceedsDebt, Available: u.CreditDebt}
-		}
-
 		if err := tx.Create(txRef, t); err != nil {
 			return err
 		}

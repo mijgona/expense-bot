@@ -36,25 +36,148 @@ func (s *Store) UpsertUserRaw(ctx context.Context, u store.User) error {
 	return err
 }
 
-// UpsertTransactionsRaw overwrites transactions by ID (idempotent).
-func (s *Store) UpsertTransactionsRaw(ctx context.Context, userID int64, txs []store.Transaction) error {
+// ShouldSkip reports whether the migration must leave a record alone (FR-011): the user
+// edited it (editedAt set) or deleted it (tombstone).
+func ShouldSkip(existing *store.Transaction, tombstoned bool) bool {
+	return tombstoned || (existing != nil && existing.EditedAt != nil)
+}
+
+// UpsertTransactionsRaw overwrites migrated transactions by ID (idempotent), skipping records
+// the user edited or deleted. It returns how many were skipped for each reason.
+func (s *Store) UpsertTransactionsRaw(ctx context.Context, userID int64, txs []store.Transaction) (edited, deleted int, err error) {
+	tomb, err := s.tombstones(ctx, userID)
+	if err != nil {
+		return 0, 0, err
+	}
+	refs := make([]*firestore.DocumentRef, len(txs))
+	for i, t := range txs {
+		refs[i] = s.txs(userID).Doc(t.ID)
+	}
+	snaps, err := s.c.GetAll(ctx, refs)
+	if err != nil {
+		return 0, 0, fmt.Errorf("read existing: %w", err)
+	}
+
 	bw := s.c.BulkWriter(ctx)
 	jobs := make([]*firestore.BulkWriterJob, 0, len(txs))
-	for _, t := range txs {
-		j, err := bw.Set(s.txs(userID).Doc(t.ID), t)
+	for i, t := range txs {
+		var existing *store.Transaction
+		if snaps[i].Exists() {
+			var e store.Transaction
+			if err := snaps[i].DataTo(&e); err != nil {
+				bw.End()
+				return 0, 0, err
+			}
+			existing = &e
+		}
+		if ShouldSkip(existing, tomb[t.ID]) {
+			if tomb[t.ID] {
+				deleted++
+			} else {
+				edited++
+			}
+			continue
+		}
+		if t.OccurredAt.IsZero() {
+			t.OccurredAt = t.CreatedAt
+		}
+		t.Version = 1
+		j, err := bw.Set(refs[i], t)
 		if err != nil {
 			bw.End()
-			return err
+			return 0, 0, err
 		}
 		jobs = append(jobs, j)
 	}
 	bw.End()
 	for _, j := range jobs {
 		if _, err := j.Results(); err != nil {
-			return fmt.Errorf("upsert transaction: %w", err)
+			return 0, 0, fmt.Errorf("upsert transaction: %w", err)
 		}
 	}
-	return nil
+	return edited, deleted, nil
+}
+
+func (s *Store) tombstones(ctx context.Context, userID int64) (map[string]bool, error) {
+	out := map[string]bool{}
+	it := s.user(userID).Collection("tombstones").DocumentRefs(ctx)
+	for {
+		ref, err := it.Next()
+		if err == iterator.Done {
+			return out, nil
+		}
+		if err != nil {
+			return nil, fmt.Errorf("list tombstones: %w", err)
+		}
+		out[ref.ID] = true
+	}
+}
+
+// Backfill005 sets occurredAt = createdAt and version = 1 where missing (feature 005 rollout).
+// Nothing else is touched; idempotent.
+func (s *Store) Backfill005(ctx context.Context, userID int64) (txs, goals int, err error) {
+	bw := s.c.BulkWriter(ctx)
+	var jobs []*firestore.BulkWriterJob
+	add := func(ref *firestore.DocumentRef, data map[string]any) error {
+		j, err := bw.Set(ref, data, firestore.MergeAll)
+		if err == nil {
+			jobs = append(jobs, j)
+		}
+		return err
+	}
+	it := s.txs(userID).Documents(ctx)
+	for {
+		snap, e := it.Next()
+		if e == iterator.Done {
+			break
+		}
+		if e != nil {
+			it.Stop()
+			bw.End()
+			return 0, 0, e
+		}
+		data := snap.Data()
+		upd := map[string]any{}
+		if _, ok := data["occurredAt"]; !ok {
+			upd["occurredAt"] = data["createdAt"]
+		}
+		if _, ok := data["version"]; !ok {
+			upd["version"] = int64(1)
+		}
+		if len(upd) > 0 {
+			if e := add(snap.Ref, upd); e != nil {
+				bw.End()
+				return 0, 0, e
+			}
+			txs++
+		}
+	}
+	git := s.goals(userID).Documents(ctx)
+	for {
+		snap, e := git.Next()
+		if e == iterator.Done {
+			break
+		}
+		if e != nil {
+			git.Stop()
+			bw.End()
+			return 0, 0, e
+		}
+		if _, ok := snap.Data()["version"]; !ok {
+			if e := add(snap.Ref, map[string]any{"version": int64(1)}); e != nil {
+				bw.End()
+				return 0, 0, e
+			}
+			goals++
+		}
+	}
+	bw.End()
+	for _, j := range jobs {
+		if _, e := j.Results(); e != nil {
+			return 0, 0, fmt.Errorf("backfill: %w", e)
+		}
+	}
+	return txs, goals, nil
 }
 
 // DeleteStaleMigrated removes migration-sourced transactions and migration goals whose IDs
@@ -69,7 +192,7 @@ func (s *Store) DeleteStaleMigrated(ctx context.Context, userID int64, keepTx, k
 		return 0, err
 	}
 	for _, t := range txs {
-		if t.Source == "migration" && !keepTx[t.ID] {
+		if t.Source == "migration" && !keepTx[t.ID] && t.EditedAt == nil {
 			j, err := bw.Delete(s.txs(userID).Doc(t.ID))
 			if err != nil {
 				bw.End()

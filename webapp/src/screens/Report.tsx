@@ -1,55 +1,23 @@
 import { useState } from 'react'
-import { useSession } from '../context'
+import { useNav } from '../context'
 import { getSummary, listTransactions } from '../lib/api'
 import { formatSomoni } from '../lib/money'
-import { formatDateTime, monthTitle } from '../lib/months'
-import type { Kind, Transaction } from '../lib/types'
+import { monthTitle } from '../lib/months'
 import { useAsync } from '../hooks'
 import { Loader } from '../components/Loader'
 import { ErrorBanner } from '../components/ErrorBanner'
 import { MonthSwitcher } from '../components/MonthSwitcher'
 import { LimitBar } from '../components/LimitBar'
-
-const KIND_ICON: Record<Kind, string> = {
-  expense: '💸',
-  income: '💵',
-  savings_deposit: '🏦',
-  savings_withdrawal: '🏦',
-  credit_purchase: '💳',
-  credit_repayment: '💳',
-}
-
-const KIND_LABEL: Record<Kind, string> = {
-  expense: 'Расход',
-  income: 'Приход',
-  savings_deposit: 'В накопления',
-  savings_withdrawal: 'Из накоплений',
-  credit_purchase: 'По карте',
-  credit_repayment: 'Погашение карты',
-}
-
-// Sign from the cash-balance point of view; credit purchases don't move cash.
-function signed(t: Transaction): string {
-  switch (t.kind) {
-    case 'income':
-    case 'savings_withdrawal':
-      return '+' + formatSomoni(t.amount)
-    case 'credit_purchase':
-      return formatSomoni(t.amount)
-    default:
-      return '−' + formatSomoni(t.amount)
-  }
-}
+import { TransactionRow } from '../components/TransactionRow'
 
 export function Report({ month: initial }: { month: string }) {
   const [month, setMonth] = useState(initial)
-  const { categories } = useSession()
+  const nav = useNav()
   const summary = useAsync(() => getSummary(month), [month])
   const txs = useAsync(() => listTransactions(month), [month])
   const s = summary.data
   const items = txs.data?.items ?? []
   const empty = s !== null && s.income === 0 && s.expense === 0 && txs.data !== null && items.length === 0
-  const label = (name?: string | null) => categories.find((c) => c.name === name)?.label ?? name ?? ''
 
   return (
     <div className="screen">
@@ -126,19 +94,11 @@ export function Report({ month: initial }: { month: string }) {
         <details className="card">
           <summary>Записи ({items.length}) ▾</summary>
           {items.map((t) => (
-            <div className="tx" key={t.id}>
-              <div className="tx-main">
-                <div>
-                  {KIND_ICON[t.kind]} {t.category ? label(t.category) : KIND_LABEL[t.kind]}
-                </div>
-                <div className="hint">
-                  {formatDateTime(t.createdAt)}
-                  {t.note ? ' · ' + t.note : ''}
-                </div>
-              </div>
-              <div className="tx-amount">{signed(t)}</div>
-            </div>
+            <TransactionRow key={t.id} tx={t} onClick={() => nav.push({ name: 'edit', tx: t })} />
           ))}
+          <button className="btn-link" onClick={() => nav.push({ name: 'history', filter: { month } })}>
+            Все записи месяца →
+          </button>
         </details>
       )}
     </div>

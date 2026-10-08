@@ -474,3 +474,106 @@ details > summary {
 details > summary::-webkit-details-marker {
   display: none;
 }
+
+/* ── 005: history, edit, profile ─────────────────────────────────────────── */
+.tx.clickable {
+  cursor: pointer;
+}
+
+.tx.clickable:active {
+  opacity: 0.6;
+}
+
+.tx-edited {
+  font-size: 12px;
+  color: var(--hint);
+}
+
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%);
+  max-width: calc(100vw - 2 * var(--gutter));
+  background: var(--text);
+  color: var(--bg);
+  padding: 10px 16px;
+  border-radius: 999px;
+  font-size: 14px;
+  z-index: 100;
+  pointer-events: none;
+}
+
+.filters {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.filters .row-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+select.input {
+  width: 100%;
+  min-width: 0;
+}
+
+.month-head {
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  font-weight: 600;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--bg2);
+}
+
+.month-head .hint {
+  font-weight: 400;
+}
+
+.sentinel {
+  height: 1px;
+}
+
+.btn-danger {
+  background: transparent;
+  color: var(--danger);
+  border: 1px solid var(--danger);
+}
+
+.profile-limit {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 110px;
+  align-items: center;
+  gap: 4px 8px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--bg2);
+}
+
+.profile-limit:last-child {
+  border-bottom: 0;
+}
+
+.profile-limit .input {
+  text-align: right;
+  min-width: 0;
+}
+
+.profile-limit .meta {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: var(--hint);
+}
+
+.goal-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 4px;
+}

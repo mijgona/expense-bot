@@ -53,6 +53,7 @@ export interface TelegramWebApp {
   ready(): void
   expand(): void
   showAlert(message: string, callback?: () => void): void
+  showConfirm(message: string, callback?: (ok: boolean) => void): void
   onEvent(event: 'themeChanged', cb: () => void): void
   offEvent(event: 'themeChanged', cb: () => void): void
 }

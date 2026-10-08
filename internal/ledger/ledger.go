@@ -87,6 +87,30 @@ func Apply(kind Kind, cat string, amount int64) Delta {
 	return d
 }
 
+// Revert returns the delta that undoes Apply(kind, cat, amount): used for the old values of an
+// edited or deleted record (constitution II).
+func Revert(kind Kind, cat string, amount int64) Delta {
+	d := Apply(kind, cat, amount)
+	m := &d.Month
+	m.Income, m.Expense, m.SavingsNet = -m.Income, -m.Expense, -m.SavingsNet
+	m.CreditCharged, m.CreditRepaid, m.CashNet = -m.CreditCharged, -m.CreditRepaid, -m.CashNet
+	for k, v := range m.ByCategory {
+		m.ByCategory[k] = -v
+	}
+	for k, v := range m.ByCreditCategory {
+		m.ByCreditCategory[k] = -v
+	}
+	d.SavingsBalance, d.CreditDebt = -d.SavingsBalance, -d.CreditDebt
+	return d
+}
+
+// Add accumulates o into d.
+func (d *Delta) Add(o Delta) {
+	d.Month.Add(o.Month)
+	d.SavingsBalance += o.SavingsBalance
+	d.CreditDebt += o.CreditDebt
+}
+
 // Add accumulates d into m (used when rebuilding aggregates).
 func (m *Month) Add(d Month) {
 	m.Income += d.Income
@@ -128,12 +152,17 @@ type CategoryLine struct {
 }
 
 // BuildCategoryLines returns every configured category (spent desc), then legacy names.
-func BuildCategoryLines(m Month) []CategoryLine {
+// limits holds the user's effective limits in diram (0 = no limit); categories missing from
+// it use the default limit.
+func BuildCategoryLines(m Month, limits map[string]int64) []CategoryLine {
 	var lines []CategoryLine
 	known := map[string]bool{}
 	for _, c := range category.All() {
 		known[c.Name] = true
 		limit := int64(c.Limit) * PerSomoni
+		if v, ok := limits[c.Name]; ok {
+			limit = v
+		}
 		spent := m.ByCategory[c.Name]
 		lines = append(lines, CategoryLine{Name: c.Name, Label: c.Label, Spent: spent, Limit: &limit, Status: limitStatus(spent, limit)})
 	}

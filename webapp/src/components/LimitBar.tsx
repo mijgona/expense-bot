@@ -4,14 +4,18 @@ import { formatSomoni } from '../lib/money'
 const ICON: Record<CategoryLine['status'], string> = { ok: '🟢', warn: '🟡', over: '🔴', none: '•' }
 
 export function LimitBar({ line }: { line: CategoryLine }) {
-  if (line.limit === null) {
+  // Legacy category (null) or personal limit 0 ("без лимита"): amount only, no bar.
+  if (line.limit === null || line.limit === 0) {
     return (
       <div className="limit">
         <div className="row">
           <span>
             {ICON.none} {line.label}
           </span>
-          <span>{formatSomoni(line.spent)}</span>
+          <span>
+            {formatSomoni(line.spent)}
+            {line.limit === 0 && <span className="hint"> · без лимита</span>}
+          </span>
         </div>
       </div>
     )

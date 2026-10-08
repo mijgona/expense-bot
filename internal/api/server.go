@@ -10,6 +10,7 @@ import (
 	"log"
 	"net/http"
 	"sync"
+	"time"
 
 	"expense-bot/internal/config"
 	"expense-bot/internal/ledger"
@@ -46,8 +47,15 @@ func (s *Server) Handler() http.Handler {
 	api.HandleFunc("GET /api/summary", s.handleSummary)
 	api.HandleFunc("GET /api/transactions", s.handleListTransactions)
 	api.HandleFunc("POST /api/transactions", s.handleAddTransaction)
+	api.HandleFunc("PATCH /api/transactions/{id}", s.handlePatchTransaction)
+	api.HandleFunc("DELETE /api/transactions/{id}", s.handleDeleteTransaction)
+	api.HandleFunc("GET /api/months", s.handleListMonths)
+	api.HandleFunc("GET /api/profile", s.handleGetProfile)
+	api.HandleFunc("PATCH /api/profile", s.handlePatchProfile)
 	api.HandleFunc("GET /api/goals", s.handleListGoals)
 	api.HandleFunc("POST /api/goals", s.handleAddGoal)
+	api.HandleFunc("PATCH /api/goals/{id}", s.handlePatchGoal)
+	api.HandleFunc("DELETE /api/goals/{id}", s.handleDeleteGoal)
 	api.HandleFunc("POST /api/advisor/report", s.handleAdvisorReport)
 
 	root := http.NewServeMux()
@@ -65,7 +73,7 @@ func (s *Server) cors(next http.Handler) http.Handler {
 			h := w.Header()
 			h.Set("Access-Control-Allow-Origin", origin)
 			h.Add("Vary", "Origin")
-			h.Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+			h.Set("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS")
 			h.Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
 			h.Set("Access-Control-Max-Age", "600")
 		}
@@ -79,12 +87,17 @@ func (s *Server) cors(next http.Handler) http.Handler {
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
+type errorDetail struct {
+	Code    string     `json:"code"`
+	Message string     `json:"message"`
+	Field   string     `json:"field,omitempty"`
+	At      *time.Time `json:"at,omitempty"`
+	Balance *int64     `json:"balance,omitempty"`
+	Current any        `json:"current,omitempty"`
+}
+
 type errorBody struct {
-	Error struct {
-		Code    string `json:"code"`
-		Message string `json:"message"`
-		Field   string `json:"field,omitempty"`
-	} `json:"error"`
+	Error errorDetail `json:"error"`
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
@@ -96,9 +109,7 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 }
 
 func writeError(w http.ResponseWriter, status int, code, message, field string) {
-	var b errorBody
-	b.Error.Code, b.Error.Message, b.Error.Field = code, message, field
-	writeJSON(w, status, b)
+	writeJSON(w, status, errorBody{Error: errorDetail{Code: code, Message: message, Field: field}})
 }
 
 func validation(w http.ResponseWriter, field, message string) {
@@ -114,16 +125,38 @@ func decodeJSON(r *http.Request, dst any) error {
 	return nil
 }
 
-// writeStoreError maps store errors to API errors (422 for business rules, 500 otherwise).
+// writeStoreError maps store errors to API errors: 404 not_found, 409 conflict (+current),
+// 422 balance rule (+at, balance), 500 otherwise.
 func writeStoreError(w http.ResponseWriter, r *http.Request, err error) {
 	var le *store.LimitError
+	var ce *store.ConflictError
 	switch {
-	case errors.As(err, &le) && errors.Is(err, store.ErrInsufficientSavings):
-		writeError(w, http.StatusUnprocessableEntity, "insufficient_savings",
-			"Недостаточно накоплений: доступно "+ledger.FormatSomoni(le.Available), "amount")
-	case errors.As(err, &le) && errors.Is(err, store.ErrExceedsDebt):
-		writeError(w, http.StatusUnprocessableEntity, "exceeds_debt",
-			"Сумма больше долга по карте: "+ledger.FormatSomoni(le.Available), "amount")
+	case errors.As(err, &le):
+		code, what := "insufficient_savings", "накопления ушли бы в"
+		if errors.Is(err, store.ErrExceedsDebt) {
+			code, what = "exceeds_debt", "долг по карте стал бы"
+		}
+		d := errorDetail{Code: code, Field: "amount"}
+		if le.At.IsZero() {
+			d.Message = "Недостаточно средств: доступно " + ledger.FormatSomoni(le.Available)
+		} else {
+			at, bal := le.At.UTC(), le.Balance
+			d.At, d.Balance = &at, &bal
+			d.Message = fmt.Sprintf("%s: %s %s", le.At.In(ledger.Location).Format("02.01.2006"), what, ledger.FormatSomoni(le.Balance))
+		}
+		writeJSON(w, http.StatusUnprocessableEntity, errorBody{Error: d})
+	case errors.As(err, &ce):
+		var cur any = ce.Current
+		switch c := ce.Current.(type) {
+		case store.Transaction:
+			cur = toDTO(c)
+		case store.Goal:
+			cur = goalToDTO(c, 0)
+		}
+		writeJSON(w, http.StatusConflict, errorBody{Error: errorDetail{
+			Code: "conflict", Message: "Запись изменили на другом устройстве", Current: cur}})
+	case errors.Is(err, store.ErrNotFound):
+		writeError(w, http.StatusNotFound, "not_found", "Запись не найдена", "")
 	default:
 		log.Printf("api: %s %s: %v", r.Method, r.URL.Path, err)
 		writeError(w, http.StatusInternalServerError, "internal", "Ошибка сервера, попробуйте ещё раз", "")

@@ -1,5 +1,5 @@
 import { createContext, useContext } from 'react'
-import type { Session } from './lib/types'
+import type { HistoryQuery, Session, Transaction } from './lib/types'
 
 export type AddKind = 'expense' | 'income' | 'credit_purchase'
 
@@ -11,6 +11,9 @@ export type Screen =
   | { name: 'credit' }
   | { name: 'goals' }
   | { name: 'advisor' }
+  | { name: 'history'; filter?: Partial<HistoryQuery> }
+  | { name: 'edit'; tx: Transaction }
+  | { name: 'profile' }
 
 export interface Nav {
   push(screen: Screen): void
@@ -30,4 +33,13 @@ export function useSession(): Session {
   const s = useContext(SessionContext)
   if (!s) throw new Error('SessionContext missing')
   return s
+}
+
+/** Refetches /api/session (effective salary, limits, display name) after profile changes. */
+export const SessionReloadContext = createContext<(() => void) | null>(null)
+
+export function useSessionReload(): () => void {
+  const r = useContext(SessionReloadContext)
+  if (!r) throw new Error('SessionReloadContext missing')
+  return r
 }

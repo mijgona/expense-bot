@@ -93,7 +93,7 @@ func TestBuildCategoryLines(t *testing.T) {
 		"Транспорт": 80001,  // >80% → warn
 		"Старое":    5000,   // legacy
 	}}
-	lines := BuildCategoryLines(m)
+	lines := BuildCategoryLines(m, nil)
 	if lines[0].Name != "Еда" || lines[1].Name != "Транспорт" || lines[2].Name != "Связь" {
 		t.Fatalf("order = %s, %s, %s", lines[0].Name, lines[1].Name, lines[2].Name)
 	}
@@ -202,5 +202,56 @@ func TestFormatSomoni(t *testing.T) {
 		if got := FormatSomoni(in); got != want {
 			t.Errorf("FormatSomoni(%d) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+func TestRevertNegatesApply(t *testing.T) {
+	for _, k := range []Kind{KindExpense, KindIncome, KindSavingsDeposit, KindSavingsWithdrawal, KindCreditPurchase, KindCreditRepayment} {
+		var sum Delta
+		sum.Add(Apply(k, "Еда", 700))
+		sum.Add(Revert(k, "Еда", 700))
+		m := sum.Month
+		if m.Income|m.Expense|m.SavingsNet|m.CreditCharged|m.CreditRepaid|m.CashNet|sum.SavingsBalance|sum.CreditDebt != 0 {
+			t.Errorf("%s: Apply+Revert = %+v", k, sum)
+		}
+		for c, v := range m.ByCategory {
+			if v != 0 {
+				t.Errorf("%s: byCategory[%s]=%d", k, c, v)
+			}
+		}
+		for c, v := range m.ByCreditCategory {
+			if v != 0 {
+				t.Errorf("%s: byCreditCategory[%s]=%d", k, c, v)
+			}
+		}
+	}
+}
+
+func TestEditDelta(t *testing.T) {
+	var d Delta
+	d.Add(Revert(KindExpense, "Транспорт", 35000))
+	d.Add(Apply(KindExpense, "Еда", 53000))
+	m := d.Month
+	if m.Expense != 18000 || m.CashNet != -18000 || m.ByCategory["Транспорт"] != -35000 || m.ByCategory["Еда"] != 53000 {
+		t.Errorf("edit delta = %+v", m)
+	}
+}
+
+func TestBuildCategoryLinesPersonalLimits(t *testing.T) {
+	m := Month{ByCategory: map[string]int64{"Еда": 250000, "Связь": 50000}}
+	lines := BuildCategoryLines(m, map[string]int64{"Еда": 300000, "Связь": 0})
+	got := map[string]CategoryLine{}
+	for _, l := range lines {
+		got[l.Name] = l
+	}
+	if got["Еда"].Status != "warn" || *got["Еда"].Limit != 300000 {
+		t.Errorf("Еда = %+v (want warn at 300000)", got["Еда"])
+	}
+	if got["Связь"].Status != "none" || *got["Связь"].Limit != 0 {
+		t.Errorf("Связь = %+v (want none, limit 0)", got["Связь"])
+	}
+	// categories missing from the map fall back to defaults
+	if *got["Транспорт"].Limit != 100000 {
+		t.Errorf("Транспорт default limit = %d", *got["Транспорт"].Limit)
 	}
 }

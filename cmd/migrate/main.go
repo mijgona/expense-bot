@@ -27,10 +27,31 @@ func main() {
 	dryRun := flag.Bool("dry-run", false, "read and map only; write nothing")
 	onlyUser := flag.Int64("user", 0, "migrate a single Telegram user ID")
 	rebuildOnly := flag.Bool("rebuild", false, "skip import; rebuild aggregates from Firestore transactions and verify")
+	backfill005 := flag.Bool("backfill-005", false, "set occurredAt/version on existing records (feature 005), nothing else")
 	flag.Parse()
 
 	ctx := context.Background()
 	creds := loadCredentials()
+
+	if *backfill005 {
+		st := mustStore(ctx, creds)
+		defer st.Close()
+		ids := []int64{*onlyUser}
+		if *onlyUser == 0 {
+			var err error
+			if ids, err = st.ListUserIDs(ctx); err != nil {
+				log.Fatal(err)
+			}
+		}
+		for _, id := range ids {
+			txs, goals, err := st.Backfill005(ctx, id)
+			if err != nil {
+				log.Fatalf("user %d: backfill: %v", id, err)
+			}
+			fmt.Printf("user %d: backfilled %d transactions, %d goals\n", id, txs, goals)
+		}
+		return
+	}
 
 	if *rebuildOnly {
 		st := mustStore(ctx, creds)
@@ -93,8 +114,12 @@ func main() {
 		if err := st.UpsertUserRaw(ctx, sheets.MapUser(u)); err != nil {
 			log.Fatalf("user %d: upsert user: %v", id, err)
 		}
-		if err := st.UpsertTransactionsRaw(ctx, id, data.txs); err != nil {
+		skippedEdited, skippedDeleted, err := st.UpsertTransactionsRaw(ctx, id, data.txs)
+		if err != nil {
 			log.Fatalf("user %d: %v", id, err)
+		}
+		if skippedEdited+skippedDeleted > 0 {
+			fmt.Printf("  skipped %d edited, %d deleted-by-user (FR-011)\n", skippedEdited, skippedDeleted)
 		}
 		if err := st.UpsertGoalsRaw(ctx, id, data.goals); err != nil {
 			log.Fatalf("user %d: %v", id, err)
@@ -114,9 +139,16 @@ func main() {
 		if _, _, err := st.RebuildAggregates(ctx, id); err != nil {
 			log.Fatalf("user %d: rebuild: %v", id, err)
 		}
-		mm, n := verifyAgainstSheets(ctx, st, id, data)
-		mismatches += mm + verifyAggregates(ctx, st, id)
-		monthsChecked += n
+		if skippedEdited+skippedDeleted > 0 {
+			// The user changed migrated records in the app, so Firestore intentionally differs
+			// from the sheet; only aggregate consistency can be verified.
+			fmt.Printf("  sheet comparison skipped (user edits present); checking aggregates only\n")
+			mismatches += verifyAggregates(ctx, st, id)
+		} else {
+			mm, n := verifyAgainstSheets(ctx, st, id, data)
+			mismatches += mm + verifyAggregates(ctx, st, id)
+			monthsChecked += n
+		}
 	}
 	if *dryRun {
 		fmt.Printf("dry-run: %d users read, nothing written\n", len(ids))

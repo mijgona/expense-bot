@@ -13,7 +13,7 @@ export function Home() {
 
   return (
     <div className="screen">
-      <div className="screen-title">👋 Привет, {session.user.firstName}!</div>
+      <div className="screen-title">👋 Привет, {session.user.displayName || session.user.firstName}!</div>
       <div className="hint">💼 Зарплата: {formatSomoni(session.salary)}</div>
 
       {loading && !s && <Loader text="Считаю баланс…" />}
@@ -82,8 +82,14 @@ export function Home() {
         <button className="action" onClick={() => nav.push({ name: 'goals' })}>
           🎯 Цели
         </button>
+        <button className="action" onClick={() => nav.push({ name: 'history' })}>
+          📜 История
+        </button>
         <button className="action" onClick={() => nav.push({ name: 'advisor' })}>
           🤖 ИИ-отчёт
+        </button>
+        <button className="action" onClick={() => nav.push({ name: 'profile' })}>
+          👤 Профиль
         </button>
       </div>
     </div>

@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useMemo, useState } from 'react'
-import { NavContext, SessionContext, type Nav, type Screen } from './context'
+import { NavContext, SessionContext, SessionReloadContext, type Nav, type Screen } from './context'
 import { ApiError, getSession } from './lib/api'
 import { isInsideTelegram, useBackButton } from './lib/telegram'
 import { useAsync } from './hooks'
@@ -16,6 +16,10 @@ import { Goals } from './screens/Goals'
 
 // Advisor pulls in react-markdown (~45 KB gz); load it only when the screen is opened.
 const Advisor = lazy(() => import('./screens/Advisor').then((m) => ({ default: m.Advisor })))
+// History / edit / profile are secondary screens; split them out to keep the first-load chunk small.
+const History = lazy(() => import('./screens/History').then((m) => ({ default: m.History })))
+const EditTransaction = lazy(() => import('./screens/EditTransaction').then((m) => ({ default: m.EditTransaction })))
+const Profile = lazy(() => import('./screens/Profile').then((m) => ({ default: m.Profile })))
 
 // In dev (vite) the Go server authenticates via DEV_USER_ID, so a plain browser is allowed.
 const allowOutside = import.meta.env.DEV
@@ -44,7 +48,9 @@ function Bootstrap() {
 
   return (
     <SessionContext.Provider value={session.data}>
-      <Navigator />
+      <SessionReloadContext.Provider value={session.reload}>
+        <Navigator />
+      </SessionReloadContext.Provider>
     </SessionContext.Provider>
   )
 }
@@ -84,6 +90,24 @@ function ScreenView({ screen }: { screen: Screen }) {
       return (
         <Suspense fallback={<Loader />}>
           <Advisor />
+        </Suspense>
+      )
+    case 'history':
+      return (
+        <Suspense fallback={<Loader />}>
+          <History filter={screen.filter} />
+        </Suspense>
+      )
+    case 'edit':
+      return (
+        <Suspense fallback={<Loader />}>
+          <EditTransaction tx={screen.tx} />
+        </Suspense>
+      )
+    case 'profile':
+      return (
+        <Suspense fallback={<Loader />}>
+          <Profile />
         </Suspense>
       )
   }

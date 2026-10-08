@@ -2,6 +2,7 @@ import { useRef, useState } from 'react'
 import { useNav, useSession, type AddKind } from '../context'
 import { addTransaction, ApiError, newClientId } from '../lib/api'
 import { formatSomoni, parseAmountInput } from '../lib/money'
+import { todayDushanbe } from '../lib/months'
 import { haptic } from '../lib/telegram'
 import type { WriteResult } from '../lib/types'
 import { AmountInput } from '../components/AmountInput'
@@ -22,6 +23,8 @@ export function AddTransaction({ kind }: { kind: AddKind }) {
   const [amount, setAmount] = useState('')
   const [note, setNote] = useState('')
   const [category, setCategory] = useState<string | null>(null)
+  const today = todayDushanbe()
+  const [date, setDate] = useState(today)
   const [touched, setTouched] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<unknown>(null)
@@ -32,11 +35,14 @@ export function AddTransaction({ kind }: { kind: AddKind }) {
   const parsed = parseAmountInput(amount)
   const amountError = touched && !parsed.ok ? parsed.error : null
   const serverFieldError = error instanceof ApiError && error.code === 'validation' ? error.field : undefined
-  const canSave = parsed.ok && (!needsCategory || category !== null) && !saving
+  // 422 balance rule (savings / card debt would go negative at some date) is shown under the amount.
+  const balanceError = error instanceof ApiError && error.status === 422 ? error.message : null
+  const dateError = date > today ? 'Дата не может быть в будущем' : null
+  const canSave = parsed.ok && (!needsCategory || category !== null) && !dateError && !saving
 
   async function save() {
     setTouched(true)
-    if (!parsed.ok || (needsCategory && !category)) return
+    if (!parsed.ok || (needsCategory && !category) || dateError) return
     setSaving(true)
     setError(null)
     try {
@@ -46,6 +52,7 @@ export function AddTransaction({ kind }: { kind: AddKind }) {
         amount: parsed.diram,
         category: needsCategory ? category! : undefined,
         note: note.trim() || undefined,
+        date: date && date !== today ? date : undefined,
       })
       haptic('success')
       setResult(res)
@@ -62,6 +69,7 @@ export function AddTransaction({ kind }: { kind: AddKind }) {
     setAmount('')
     setNote('')
     setCategory(null)
+    setDate(today)
     setTouched(false)
     setError(null)
     setResult(null)
@@ -83,7 +91,7 @@ export function AddTransaction({ kind }: { kind: AddKind }) {
             <span>💚 Остаток</span>
             <span>{formatSomoni(s.remaining)}</span>
           </div>
-          {kind === 'expense' && line && line.limit !== null && (
+          {kind === 'expense' && line && line.limit !== null && line.limit > 0 && (
             <div className="row">
               <span>{line.label}</span>
               <span>
@@ -119,7 +127,7 @@ export function AddTransaction({ kind }: { kind: AddKind }) {
             setAmount(v)
             setTouched(true)
           }}
-          error={amountError ?? (serverFieldError === 'amount' ? (error as ApiError).message : null)}
+          error={amountError ?? (serverFieldError === 'amount' ? (error as ApiError).message : balanceError)}
         />
         <div className="field">
           <label htmlFor="note">Описание (необязательно)</label>
@@ -132,6 +140,20 @@ export function AddTransaction({ kind }: { kind: AddKind }) {
             onChange={(e) => setNote(e.target.value)}
           />
         </div>
+        <div className="field">
+          <label htmlFor="date">Дата</label>
+          <input
+            id="date"
+            type="date"
+            className={'input' + (dateError || serverFieldError === 'date' ? ' invalid' : '')}
+            max={today}
+            value={date}
+            onChange={(e) => setDate(e.target.value || today)}
+          />
+          {(dateError || serverFieldError === 'date') && (
+            <div className="error-text">{dateError ?? (error as ApiError).message}</div>
+          )}
+        </div>
       </div>
       {needsCategory && (
         <div className="card">
@@ -139,7 +161,7 @@ export function AddTransaction({ kind }: { kind: AddKind }) {
           {touched && !category && <div className="error-text">Выберите категорию</div>}
         </div>
       )}
-      {error != null && serverFieldError !== 'amount' && <ErrorBanner error={error} onRetry={canSave ? save : undefined} />}
+      {error != null && serverFieldError !== 'amount' && serverFieldError !== 'date' && !balanceError && <ErrorBanner error={error} onRetry={canSave ? save : undefined} />}
       <button className="btn" disabled={!canSave} onClick={save}>
         {saving ? 'Сохраняю…' : 'Сохранить'}
       </button>

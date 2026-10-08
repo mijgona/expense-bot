@@ -42,3 +42,27 @@ export function useBackButton(onBack: (() => void) | null): void {
     }
   }, [onBack])
 }
+
+/** Native Telegram confirm dialog; falls back to window.confirm outside Telegram (dev). */
+export function confirmAction(message: string): Promise<boolean> {
+  const app = tg()
+  if (app?.initData && typeof app.showConfirm === 'function') {
+    return new Promise((resolve) => {
+      try {
+        app.showConfirm(message, (ok) => resolve(ok))
+      } catch {
+        resolve(window.confirm(message))
+      }
+    })
+  }
+  return Promise.resolve(window.confirm(message))
+}
+
+/** Short non-blocking notice at the bottom of the screen. */
+export function toast(text: string): void {
+  const el = document.createElement('div')
+  el.className = 'toast'
+  el.textContent = text
+  document.body.appendChild(el)
+  setTimeout(() => el.remove(), 1800)
+}

@@ -2,12 +2,19 @@ import { tg } from './telegram'
 import type {
   AdvisorReport,
   Goal,
+  GoalPatch,
   GoalsResponse,
+  HistoryPage,
+  HistoryQuery,
+  MonthAgg,
   NewGoal,
   NewTransaction,
+  Profile,
+  ProfilePatch,
   Session,
   Summary,
   Transaction,
+  TransactionPatch,
   WriteResult,
 } from './types'
 
@@ -16,21 +23,42 @@ const BASE: string = import.meta.env.VITE_API_URL ?? ''
 const DEFAULT_TIMEOUT_MS = 15_000
 const ADVISOR_TIMEOUT_MS = 90_000
 
+interface ErrorBody {
+  code?: string
+  message?: string
+  field?: string
+  /** Balance rule: first date where the balance would break. */
+  at?: string
+  /** Balance rule: would-be balance at `at` (diram, negative). */
+  balance?: number
+  /** Conflict: the current record or goal. */
+  current?: unknown
+}
+
 export class ApiError extends Error {
   status: number
   code: string
   field?: string
+  at?: string
+  balance?: number
+  current?: unknown
 
-  constructor(status: number, code: string, message: string, field?: string) {
+  constructor(status: number, code: string, message: string, field?: string, extra?: ErrorBody) {
     super(message)
     this.name = 'ApiError'
     this.status = status
     this.code = code
     this.field = field
+    this.at = extra?.at
+    this.balance = extra?.balance
+    this.current = extra?.current
   }
 }
 
-async function request<T>(method: 'GET' | 'POST', path: string, body?: unknown): Promise<T> {
+type Method = 'GET' | 'POST' | 'PATCH' | 'DELETE'
+
+/** Returns null for 204 No Content. */
+async function request<T>(method: Method, path: string, body?: unknown): Promise<T> {
   const headers: Record<string, string> = {}
   const initData = tg()?.initData
   if (initData) headers.Authorization = 'tma ' + initData
@@ -54,6 +82,8 @@ async function request<T>(method: 'GET' | 'POST', path: string, body?: unknown):
     clearTimeout(timer)
   }
 
+  if (res.status === 204) return null as T
+
   let data: unknown = null
   const text = await res.text()
   if (text) {
@@ -74,12 +104,13 @@ async function request<T>(method: 'GET' | 'POST', path: string, body?: unknown):
   }
 
   if (!res.ok) {
-    const err = (data as { error?: { code?: string; message?: string; field?: string } } | null)?.error
+    const err = (data as { error?: ErrorBody } | null)?.error
     throw new ApiError(
       res.status,
       err?.code ?? (res.status >= 500 ? 'internal' : 'unknown'),
       err?.message ?? `Ошибка сервера (${res.status})`,
       err?.field,
+      err,
     )
   }
   return data as T
@@ -99,9 +130,50 @@ export const listTransactions = (month: string, limit = 100) =>
 export const addTransaction = (body: NewTransaction) =>
   request<WriteResult>('POST', '/api/transactions', body)
 
+function qs(params: Record<string, string | number | undefined | null>): string {
+  const p = new URLSearchParams()
+  for (const [k, v] of Object.entries(params)) {
+    if (v !== undefined && v !== null && v !== '') p.set(k, String(v))
+  }
+  const s = p.toString()
+  return s ? '?' + s : ''
+}
+
+/** History: all records, newest first, filterable, cursor-paged. */
+export const listHistory = (q: HistoryQuery) =>
+  request<HistoryPage>(
+    'GET',
+    '/api/transactions' +
+      qs({ group: q.group, category: q.category, month: q.month, q: q.q, cursor: q.cursor, limit: q.limit }),
+  )
+
+export const patchTransaction = (id: string, body: TransactionPatch) =>
+  request<WriteResult>('PATCH', `/api/transactions/${encodeURIComponent(id)}`, body)
+
+/** Deletes a record. Resolves with the new summary, or null when it was already gone (204). */
+export const deleteTransaction = (id: string, version: number) =>
+  request<{ summary: Summary } | null>(
+    'DELETE',
+    `/api/transactions/${encodeURIComponent(id)}` + qs({ version }),
+  )
+
+export const listMonths = (from?: string, to?: string) =>
+  request<{ items: MonthAgg[] }>('GET', '/api/months' + qs({ from, to }))
+
+export const getProfile = () => request<Profile>('GET', '/api/profile')
+
+export const patchProfile = (body: ProfilePatch) => request<Profile>('PATCH', '/api/profile', body)
+
 export const listGoals = () => request<GoalsResponse>('GET', '/api/goals')
 
 export const addGoal = (body: NewGoal) => request<Goal>('POST', '/api/goals', body)
+
+export const patchGoal = (id: string, body: GoalPatch) =>
+  request<Goal>('PATCH', `/api/goals/${encodeURIComponent(id)}`, body)
+
+/** Deletes a goal; 204 both when deleted and when already gone. */
+export const deleteGoal = (id: string, version: number) =>
+  request<null>('DELETE', `/api/goals/${encodeURIComponent(id)}` + qs({ version }))
 
 export const advisorReport = () => request<AdvisorReport>('POST', '/api/advisor/report')
 

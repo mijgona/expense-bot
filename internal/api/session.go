@@ -11,6 +11,7 @@ import (
 type sessionUser struct {
 	ID           int64     `json:"id"`
 	FirstName    string    `json:"firstName"`
+	DisplayName  string    `json:"displayName"`
 	Username     string    `json:"username"`
 	RegisteredAt time.Time `json:"registeredAt"`
 	IsNew        bool      `json:"isNew"`
@@ -44,19 +45,20 @@ func (s *Server) handleSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	eff := s.effective(u)
 	resp := sessionResponse{
 		User: sessionUser{
-			ID: u.ID, FirstName: u.FirstName, Username: u.Username,
+			ID: u.ID, FirstName: u.FirstName, DisplayName: eff.DisplayName, Username: u.Username,
 			RegisteredAt: u.RegisteredAt, IsNew: created,
 		},
-		Salary:       int64(s.cfg.Salary) * ledger.PerSomoni,
+		Salary:       eff.Salary,
 		CurrentMonth: ledger.MonthKey(ledger.Now()),
 	}
 	if first != "" {
 		resp.FirstMonth = &first
 	}
 	for _, c := range category.All() {
-		resp.Categories = append(resp.Categories, categoryDTO{Name: c.Name, Label: c.Label, Limit: int64(c.Limit) * ledger.PerSomoni})
+		resp.Categories = append(resp.Categories, categoryDTO{Name: c.Name, Label: c.Label, Limit: eff.Limits[c.Name]})
 	}
 	writeJSON(w, http.StatusOK, resp)
 }

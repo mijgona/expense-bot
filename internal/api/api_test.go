@@ -1,14 +1,12 @@
 package api
 
 import (
-	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"strconv"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -19,129 +17,7 @@ import (
 
 	"expense-bot/internal/config"
 	"expense-bot/internal/ledger"
-	"expense-bot/internal/store"
 )
-
-// memStore is an in-memory store.Store with the same ledger semantics as Firestore.
-type memStore struct {
-	mu     sync.Mutex
-	users  map[int64]*store.User
-	txs    map[int64]map[string]store.Transaction
-	months map[int64]map[string]ledger.Month
-	goals  map[int64][]store.Goal
-}
-
-func newMem() *memStore {
-	return &memStore{users: map[int64]*store.User{}, txs: map[int64]map[string]store.Transaction{},
-		months: map[int64]map[string]ledger.Month{}, goals: map[int64][]store.Goal{}}
-}
-
-func (m *memStore) EnsureUser(_ context.Context, id int64, fn, un string) (store.User, bool, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if u, ok := m.users[id]; ok {
-		return *u, false, nil
-	}
-	u := &store.User{ID: id, FirstName: fn, Username: un, RegisteredAt: time.Now()}
-	m.users[id] = u
-	return *u, true, nil
-}
-func (m *memStore) GetUser(_ context.Context, id int64) (store.User, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if u, ok := m.users[id]; ok {
-		return *u, nil
-	}
-	return store.User{ID: id}, nil
-}
-func (m *memStore) AddTransaction(_ context.Context, uid int64, t store.Transaction) (store.Transaction, bool, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if m.txs[uid] == nil {
-		m.txs[uid], m.months[uid] = map[string]store.Transaction{}, map[string]ledger.Month{}
-	}
-	if old, ok := m.txs[uid][t.ID]; ok {
-		return old, false, nil
-	}
-	u := m.users[uid]
-	if u == nil {
-		u = &store.User{ID: uid}
-		m.users[uid] = u
-	}
-	d := ledger.Apply(t.Kind, t.Category, t.Amount)
-	if u.SavingsBalance+d.SavingsBalance < 0 {
-		return store.Transaction{}, false, &store.LimitError{Err: store.ErrInsufficientSavings, Available: u.SavingsBalance}
-	}
-	if u.CreditDebt+d.CreditDebt < 0 {
-		return store.Transaction{}, false, &store.LimitError{Err: store.ErrExceedsDebt, Available: u.CreditDebt}
-	}
-	m.txs[uid][t.ID] = t
-	mo := m.months[uid][t.Month]
-	mo.Month = t.Month
-	mo.Add(d.Month)
-	m.months[uid][t.Month] = mo
-	u.SavingsBalance += d.SavingsBalance
-	u.CreditDebt += d.CreditDebt
-	return t, true, nil
-}
-func (m *memStore) ListTransactions(_ context.Context, uid int64, month string, limit int) ([]store.Transaction, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	var out []store.Transaction
-	for _, t := range m.txs[uid] {
-		if t.Month == month {
-			out = append(out, t)
-		}
-	}
-	return out, nil
-}
-func (m *memStore) GetMonth(_ context.Context, uid int64, month string) (ledger.Month, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	mo := m.months[uid][month]
-	mo.Month = month
-	return mo, nil
-}
-func (m *memStore) MonthsBefore(_ context.Context, uid int64, month string) ([]ledger.Month, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	var out []ledger.Month
-	for k, v := range m.months[uid] {
-		if k < month {
-			out = append(out, v)
-		}
-	}
-	return out, nil
-}
-func (m *memStore) FirstMonth(_ context.Context, uid int64) (string, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	first := ""
-	for k := range m.months[uid] {
-		if first == "" || k < first {
-			first = k
-		}
-	}
-	return first, nil
-}
-func (m *memStore) ListGoals(_ context.Context, uid int64) ([]store.Goal, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return m.goals[uid], nil
-}
-func (m *memStore) AddGoal(_ context.Context, uid int64, g store.Goal) (store.Goal, bool, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	for _, e := range m.goals[uid] {
-		if e.ID == g.ID {
-			return e, false, nil
-		}
-	}
-	m.goals[uid] = append(m.goals[uid], g)
-	return g, true, nil
-}
-func (m *memStore) ListUserIDs(context.Context) ([]int64, error) { return nil, nil }
-func (m *memStore) Close() error                                 { return nil }
 
 const botToken = "1:TEST"
 
@@ -165,11 +41,13 @@ func initData(userID int64) string {
 type testEnv struct {
 	h   http.Handler
 	cfg *config.Config
+	mem *memStore
 }
 
 func newEnv(allowed ...int64) testEnv {
 	cfg := &config.Config{BotToken: botToken, Salary: 16000, AllowedUserIDs: allowed, WebAppURL: "https://app.example"}
-	return testEnv{h: New(newMem(), cfg, nil).Handler(), cfg: cfg}
+	mem := newMem()
+	return testEnv{h: New(mem, cfg, nil).Handler(), cfg: cfg, mem: mem}
 }
 
 func (e testEnv) do(t *testing.T, method, path, auth, body string) (int, map[string]any) {

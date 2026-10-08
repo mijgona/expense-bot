@@ -58,3 +58,33 @@ const dtf = new Intl.DateTimeFormat('ru-RU', {
 export function formatDateTime(iso: string): string {
   return dtf.format(new Date(iso))
 }
+
+const dfFull = new Intl.DateTimeFormat('ru-RU', {
+  timeZone: 'Asia/Dushanbe',
+  day: '2-digit',
+  month: '2-digit',
+  year: 'numeric',
+})
+
+/** ISO timestamp → "07.10.2026" in Dushanbe time. */
+export function formatDate(iso: string): string {
+  return dfFull.format(new Date(iso))
+}
+
+// en-CA formats dates as YYYY-MM-DD, which is what <input type="date"> and the API expect.
+const dfIso = new Intl.DateTimeFormat('en-CA', {
+  timeZone: 'Asia/Dushanbe',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+})
+
+/** ISO timestamp → "2026-10-07" (Dushanbe calendar day). */
+export function toDateInput(iso: string): string {
+  return dfIso.format(new Date(iso))
+}
+
+/** Today in Dushanbe as "YYYY-MM-DD". */
+export function todayDushanbe(): string {
+  return dfIso.format(new Date())
+}
