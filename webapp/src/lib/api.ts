@@ -64,6 +64,15 @@ async function request<T>(method: 'GET' | 'POST', path: string, body?: unknown):
     }
   }
 
+  // A 200 with non-JSON body means we hit the static site, not the API (VITE_API_URL missing/wrong).
+  if (res.ok && data === null) {
+    throw new ApiError(
+      res.status,
+      'misconfigured',
+      'Приложение не может связаться с сервером: не настроен адрес API (VITE_API_URL).',
+    )
+  }
+
   if (!res.ok) {
     const err = (data as { error?: { code?: string; message?: string; field?: string } } | null)?.error
     throw new ApiError(
