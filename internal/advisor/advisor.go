@@ -12,9 +12,8 @@ import (
 	"time"
 
 	"expense-bot/internal/category"
-	"expense-bot/internal/sheets"
-
-	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
+	"expense-bot/internal/ledger"
+	"expense-bot/internal/store"
 )
 
 const (
@@ -22,94 +21,95 @@ const (
 	interval     = 72 * time.Hour
 )
 
-// Advisor runs a periodic financial analysis for all users and sends results to Telegram.
+// Notifier delivers a generated report (Markdown file) to the user, e.g. as a Telegram document.
+type Notifier func(ctx context.Context, userID int64, filename string, md []byte) error
+
+// Advisor produces Gemini-based financial reports: on demand (API) and every 72h (chat).
 type Advisor struct {
-	api    *tgbotapi.BotAPI
-	sheets *sheets.Client
+	store  store.Store
 	apiKey string
 	salary int
+	notify Notifier
 }
 
-// New creates an Advisor. apiKey is the Anthropic API key.
-func New(api *tgbotapi.BotAPI, sheetsClient *sheets.Client, apiKey string, salary int) *Advisor {
-	return &Advisor{
-		api:    api,
-		sheets: sheetsClient,
-		apiKey: apiKey,
-		salary: salary,
-	}
+// New creates an Advisor. apiKey is the Gemini API key; notify may be nil (no periodic delivery).
+func New(st store.Store, apiKey string, salary int, notify Notifier) *Advisor {
+	return &Advisor{store: st, apiKey: apiKey, salary: salary, notify: notify}
 }
 
-// Start runs the advisory loop in the background every 3 days.
-// Call as: go advisor.Start()
-func (a *Advisor) Start() {
-	if a.apiKey == "" {
+// Enabled reports whether GEMINI_API_KEY is configured.
+func (a *Advisor) Enabled() bool { return a.apiKey != "" }
+
+// Start runs the periodic loop until ctx is done. Call as: go adv.Start(ctx)
+func (a *Advisor) Start(ctx context.Context) {
+	if !a.Enabled() {
 		log.Println("advisor: GEMINI_API_KEY not set, skipping")
 		return
 	}
 	log.Printf("advisor: started, interval=%v", interval)
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
-	for range ticker.C {
-		a.runAll()
-	}
-}
-
-func (a *Advisor) runAll() {
-	users, err := a.sheets.GetUsers()
-	if err != nil {
-		log.Printf("advisor: get users: %v", err)
-		return
-	}
-	for _, uid := range users {
-		if err := a.runForUser(uid); err != nil {
-			log.Printf("advisor: user %d: %v", uid, err)
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			a.runAll(ctx)
 		}
 	}
 }
 
-// RunForUser triggers an immediate analysis for a single user.
-func (a *Advisor) RunForUser(userID int64) error {
-	if a.apiKey == "" {
-		return fmt.Errorf("GEMINI_API_KEY not set")
+func (a *Advisor) runAll(ctx context.Context) {
+	if a.notify == nil {
+		return
 	}
-	return a.runForUser(userID)
+	users, err := a.store.ListUserIDs(ctx)
+	if err != nil {
+		log.Printf("advisor: list users: %v", err)
+		return
+	}
+	for _, uid := range users {
+		md, err := a.Generate(ctx, uid)
+		if err != nil {
+			log.Printf("advisor: user %d: %v", uid, err)
+			continue
+		}
+		name := "report_" + ledger.Now().Format("2006-01-02") + ".md"
+		if err := a.notify(ctx, uid, name, []byte(md)); err != nil {
+			log.Printf("advisor: deliver to %d: %v", uid, err)
+		}
+	}
 }
 
-func (a *Advisor) runForUser(userID int64) error {
-	monthKey := time.Now().Format("2006-01")
-
-	stats, err := a.sheets.GetMonthStats(userID, monthKey)
-	if err != nil {
-		return fmt.Errorf("month stats: %w", err)
+// Generate builds the report for one user and returns it as Markdown.
+func (a *Advisor) Generate(ctx context.Context, userID int64) (string, error) {
+	if !a.Enabled() {
+		return "", fmt.Errorf("GEMINI_API_KEY not set")
 	}
-	savings, err := a.sheets.GetSavingsBalance(userID)
+	monthKey := ledger.MonthKey(ledger.Now())
+	month, err := a.store.GetMonth(ctx, userID, monthKey)
 	if err != nil {
-		return fmt.Errorf("savings balance: %w", err)
+		return "", fmt.Errorf("month: %w", err)
 	}
-	goals, err := a.sheets.GetGoals(userID)
+	u, err := a.store.GetUser(ctx, userID)
 	if err != nil {
-		return fmt.Errorf("goals: %w", err)
+		return "", fmt.Errorf("user: %w", err)
 	}
-
-	prompt := buildPrompt(monthKey, a.salary, stats, savings, goals)
-
-	advice, err := a.callGemini(prompt)
+	goals, err := a.store.ListGoals(ctx, userID)
 	if err != nil {
-		return fmt.Errorf("claude: %w", err)
+		return "", fmt.Errorf("goals: %w", err)
 	}
-
-	now := time.Now().Format("2006-01-02")
-	doc := tgbotapi.NewDocument(userID, tgbotapi.FileBytes{
-		Name:  "отчёт_" + now + ".md",
-		Bytes: []byte(advice),
-	})
-	doc.Caption = "📊 Финансовый отчёт от " + now
-	_, err = a.api.Send(doc)
-	return err
+	advice, err := a.callGemini(ctx, buildPrompt(monthKey, a.salary, month, u.SavingsBalance, goals))
+	if err != nil {
+		return "", fmt.Errorf("gemini: %w", err)
+	}
+	return advice, nil
 }
 
-func buildPrompt(monthKey string, salary int, stats *sheets.MonthStats, savings float64, goals []sheets.Goal) string {
+// somoni converts diram to somoni for prompt text.
+func somoni(d int64) float64 { return float64(d) / ledger.PerSomoni }
+
+func buildPrompt(monthKey string, salary int, m ledger.Month, savings int64, goals []store.Goal) string {
 	var sb strings.Builder
 
 	sb.WriteString("Ты финансовый советник. Проанализируй финансовое положение и дай конкретные советы на русском языке.\n\n")
@@ -117,7 +117,7 @@ func buildPrompt(monthKey string, salary int, stats *sheets.MonthStats, savings 
 
 	sb.WriteString("РАСХОДЫ ПО КАТЕГОРИЯМ:\n")
 	for _, cat := range category.All() {
-		spent := stats.Totals[cat.Name]
+		spent := somoni(m.ByCategory[cat.Name])
 		if spent == 0 && cat.Limit == 0 {
 			continue
 		}
@@ -127,23 +127,26 @@ func buildPrompt(monthKey string, salary int, stats *sheets.MonthStats, savings 
 		}
 		fmt.Fprintf(&sb, "- %s: %.0f с. / %d с. лимит (%.0f%%)\n", cat.Label, spent, cat.Limit, pct)
 	}
-	fmt.Fprintf(&sb, "\nИТОГО РАСХОДЫ: %.0f с. | ДОХОДЫ: %.0f с.\n", stats.TotalExpense, stats.TotalIncome)
-	fmt.Fprintf(&sb, "БАЛАНС НАКОПЛЕНИЙ (всё время): %.0f с.\n\n", savings)
+	fmt.Fprintf(&sb, "\nИТОГО РАСХОДЫ: %.0f с. | ДОХОДЫ: %.0f с.\n", somoni(m.Expense), somoni(m.Income))
+	if m.CreditCharged != 0 || m.CreditRepaid != 0 {
+		fmt.Fprintf(&sb, "КРЕДИТНАЯ КАРТА: потрачено %.0f с., погашено %.0f с.\n", somoni(m.CreditCharged), somoni(m.CreditRepaid))
+	}
+	fmt.Fprintf(&sb, "БАЛАНС НАКОПЛЕНИЙ (всё время): %.0f с.\n\n", somoni(savings))
 
 	if len(goals) > 0 {
 		sb.WriteString("КВАРТАЛЬНЫЕ ЦЕЛИ:\n")
 		for _, g := range goals {
-			status := g.Status
-			if status == "" {
-				status = "Активна"
+			status := "Активна"
+			if g.Status == "done" {
+				status = "Выполнена"
 			}
 			fmt.Fprintf(&sb, "- %s: цель %.0f с., квартал %s, статус: %s\n",
-				g.Name, g.TargetAmount, g.Quarter, status)
-			if g.Description != "" {
-				fmt.Fprintf(&sb, "  %s\n", g.Description)
+				g.Name, somoni(g.Target), g.Quarter, status)
+			if g.Note != "" {
+				fmt.Fprintf(&sb, "  %s\n", g.Note)
 			}
 		}
-		fmt.Fprintf(&sb, "Текущий баланс накоплений (общий): %.0f с.\n", savings)
+		fmt.Fprintf(&sb, "Текущий баланс накоплений (общий): %.0f с.\n", somoni(savings))
 	} else {
 		sb.WriteString("ЦЕЛИ: не заданы.\n")
 	}
@@ -190,7 +193,7 @@ type geminiResponse struct {
 	} `json:"error,omitempty"`
 }
 
-func (a *Advisor) callGemini(prompt string) (string, error) {
+func (a *Advisor) callGemini(ctx context.Context, prompt string) (string, error) {
 	body, err := json.Marshal(geminiRequest{
 		Contents:         []geminiContent{{Parts: []geminiPart{{Text: prompt}}}},
 		GenerationConfig: geminiGenConfig{MaxOutputTokens: 8192},
@@ -200,7 +203,7 @@ func (a *Advisor) callGemini(prompt string) (string, error) {
 	}
 
 	url := geminiAPIURL + "?key=" + a.apiKey
-	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Minute)
+	ctx, cancel := context.WithTimeout(ctx, 80*time.Second)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {

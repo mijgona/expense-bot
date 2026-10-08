@@ -1,10 +1,14 @@
 # Render Infrastructure-as-Code
 # Docs: https://render.com/docs/infrastructure-as-code
 #
+# Two services:
+#   expense-bot         Go API + minimal Telegram bot + AI advisor (Docker web service)
+#   expense-bot-webapp  Telegram Mini App (Vite static site, webapp/)
+#
 # Deploy steps:
 #   1. Push this repo to GitHub
 #   2. New → Blueprint in Render dashboard → connect repo
-#   3. Fill in the secret env vars marked sync: false
+#   3. Fill in the env vars marked sync: false (see specs/004-telegram-mini-app/quickstart.md §5)
 
 services:
   - type: web                  # free plan requires web service type
@@ -12,21 +16,50 @@ services:
     runtime: docker
     dockerfilePath: ./Dockerfile
     dockerContext: .
-    region: frankfurt           # closest to Tajikistan
-    plan: free                  # free tier is enough for a Telegram bot
+    region: frankfurt           # closest to Tajikistan; same region as Firestore europe-west3
+    plan: free
 
     # ── Environment Variables ──────────────────────────────────────────────
     # Variables marked  sync: false  must be filled in the Render dashboard
     # (Dashboard → expense-bot → Environment → Add env var)
     envVars:
       - key: BOT_TOKEN
-        sync: false             # secret — set manually in dashboard
+        sync: false             # secret
 
-      - key: SPREADSHEET_ID
-        sync: false             # secret — set manually in dashboard
+      - key: GOOGLE_CREDENTIALS_JSON
+        sync: false             # full contents of the service-account credentials.json
+
+      - key: FIRESTORE_PROJECT_ID
+        sync: false             # optional: defaults to project_id from the credentials
+
+      - key: WEBAPP_URL
+        sync: false             # e.g. https://expense-bot-webapp.onrender.com (CORS + bot button)
+
+      - key: GEMINI_API_KEY
+        sync: false             # optional: enables the AI advisor
+
+      - key: ALLOWED_USER_IDS
+        sync: false             # optional: comma-separated Telegram IDs
 
       - key: SALARY
         value: "16000"          # change here or override in dashboard
 
-      - key: GOOGLE_CREDENTIALS_JSON
-        sync: false             # paste the full contents of credentials.json
+  - type: web
+    name: expense-bot-webapp
+    runtime: static
+    rootDir: webapp
+    buildCommand: npm ci && npm run build
+    staticPublishPath: dist
+    envVars:
+      - key: VITE_API_URL
+        sync: false             # e.g. https://expense-bot.onrender.com (public, baked in at build)
+      - key: NODE_VERSION
+        value: "22"
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    headers:
+      - path: /assets/*
+        name: Cache-Control
+        value: public, max-age=31536000, immutable
