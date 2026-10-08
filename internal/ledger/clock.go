@@ -23,6 +23,13 @@ func mustLoad(name string) *time.Location {
 	return loc
 }
 
+// SetNowForTest replaces the clock (tests only) and returns a restore function.
+func SetNowForTest(f func() time.Time) (restore func()) {
+	prev := nowFunc
+	nowFunc = f
+	return func() { nowFunc = prev }
+}
+
 // Now returns the current time in Asia/Dushanbe.
 func Now() time.Time { return nowFunc().In(Location) }
 

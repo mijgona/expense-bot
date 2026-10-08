@@ -12,6 +12,8 @@ import (
 	"expense-bot/internal/advisor"
 	"expense-bot/internal/api"
 	"expense-bot/internal/config"
+	"expense-bot/internal/ledger"
+	"expense-bot/internal/payroll"
 	"expense-bot/internal/store/firestore"
 	"expense-bot/internal/telegram"
 )
@@ -45,6 +47,7 @@ func main() {
 	}()
 
 	go selfPing()
+	go payroll.NewReminder(st, payoutSender{tg}, payrollClock(cfg), cfg.WebAppURL, cfg.AllowedUserIDs, cfg.Salary).Start(ctx)
 	go adv.Start(ctx)
 	go telegram.NewBot(tg, st, cfg).Start(ctx)
 
@@ -113,6 +116,26 @@ func selfPing() {
 		}
 		resp.Body.Close()
 	}
+}
+
+// payoutSender adapts the Telegram client for payday reminders (button «💵 Записать»).
+type payoutSender struct{ c *telegram.Client }
+
+func (p payoutSender) Send(ctx context.Context, chatID int64, text, url string) error {
+	return p.c.SendAppLink(ctx, chatID, text, "💵 Записать", url)
+}
+
+// payrollClock is ledger.Now, or a fixed time from PAYROLL_FAKE_TODAY (local testing only).
+func payrollClock(cfg *config.Config) func() time.Time {
+	if cfg.PayrollFakeToday == "" {
+		return ledger.Now
+	}
+	t, err := time.ParseInLocation("2006-01-02T15:04", cfg.PayrollFakeToday, ledger.Location)
+	if err != nil {
+		log.Fatalf("PAYROLL_FAKE_TODAY: %v", err)
+	}
+	log.Printf("payroll: clock frozen at %s (PAYROLL_FAKE_TODAY)", t.Format("2006-01-02 15:04"))
+	return func() time.Time { return t }
 }
 
 func envOr(key, fallback string) string {

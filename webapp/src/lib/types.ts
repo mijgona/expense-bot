@@ -93,6 +93,8 @@ export interface Summary {
   creditDebt: number
   daysLeft?: number | null
   dailyBudget?: number | null
+  /** Split mode, current month only; daysLeft / dailyBudget then refer to it. */
+  nextPayday?: NextPayday | null
   categories: CategoryLine[]
 }
 
@@ -164,10 +166,20 @@ export interface ProfileValue<T> {
   isDefault: boolean
 }
 
+export type SalaryMode = 'single' | 'split'
+
 export interface Profile {
   telegram: { firstName: string; username: string }
   displayName: ProfileValue<string>
   salary: ProfileValue<number>
+  /** 'single' = whole salary on the last day; 'split' = advance on the 15th + rest on the last day. */
+  salaryMode: SalaryMode
+  /** Effective advance (split mode); default = half the salary in whole somoni. */
+  advance: ProfileValue<number>
+  /** salary − advance (split) or salary (single); read-only. */
+  rest: number
+  /** Bot payday reminders. */
+  salaryReminders: boolean
   updatedAt?: string | null
 }
 
@@ -175,6 +187,40 @@ export interface ProfilePatch {
   /** null resets to the default */
   displayName?: string | null
   salary?: number | null
+  salaryMode?: SalaryMode
+  /** 100 … salary − 100 diram; null = half */
+  advance?: number | null
+  salaryReminders?: boolean
+}
+
+export type PayoutKind = 'advance' | 'rest' | 'full'
+
+export type PayoutStatus = 'upcoming' | 'due' | 'recorded' | 'dismissed'
+
+export interface Payout {
+  month: string
+  kind: PayoutKind
+  /** Expected amount (diram). */
+  amount: number
+  /** YYYY-MM-DD */
+  payday: string
+  note: string
+  status: PayoutStatus
+  /** p_<month>_<kind> when recorded */
+  transactionId: string | null
+}
+
+export interface RecordPayout {
+  amount: number
+  /** YYYY-MM-DD; default the payday, not after today */
+  date?: string
+}
+
+export interface NextPayday {
+  /** YYYY-MM-DD */
+  date: string
+  kind: PayoutKind
+  daysLeft: number
 }
 
 export interface WriteResult {

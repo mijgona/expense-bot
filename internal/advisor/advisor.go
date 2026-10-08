@@ -13,6 +13,7 @@ import (
 
 	"expense-bot/internal/catalog"
 	"expense-bot/internal/ledger"
+	"expense-bot/internal/payroll"
 	"expense-bot/internal/store"
 )
 
@@ -100,7 +101,11 @@ func (a *Advisor) Generate(ctx context.Context, userID int64) (string, error) {
 		return "", fmt.Errorf("goals: %w", err)
 	}
 	eff := ledger.NewEffective(u.FirstName, a.salary, u.Overrides())
-	advice, err := a.callGemini(ctx, buildPrompt(monthKey, eff, u.CategoryList(), month, u.SavingsBalance, goals))
+	prompt := buildPrompt(monthKey, eff, u.CategoryList(), month, u.SavingsBalance, goals)
+	if mode, salary, adv := payroll.Schedule(u, a.salary); mode == payroll.ModeSplit {
+		prompt = fmt.Sprintf("ЗАРПЛАТА В ДВЕ ВЫПЛАТЫ: аванс %.0f с. 15-го, остаток %.0f с. в последний день месяца.\n", somoni(adv), somoni(salary-adv)) + prompt
+	}
+	advice, err := a.callGemini(ctx, prompt)
 	if err != nil {
 		return "", fmt.Errorf("gemini: %w", err)
 	}

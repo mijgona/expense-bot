@@ -57,6 +57,11 @@ type User struct {
 	Salary           *int64     `firestore:"salary,omitempty"`
 	ProfileUpdatedAt *time.Time `firestore:"profileUpdatedAt,omitempty"`
 
+	// Salary schedule (feature 007): "" / "single" or "split"; advance nil = half the salary.
+	SalaryMode         string `firestore:"salaryMode,omitempty"`
+	Advance            *int64 `firestore:"advance,omitempty"`
+	SalaryRemindersOff bool   `firestore:"salaryRemindersOff,omitempty"`
+
 	// Categories is the user's own category list (feature 006); empty before the conversion.
 	Categories        catalog.List `firestore:"categories,omitempty"`
 	CategoriesVersion int64        `firestore:"categoriesVersion"`
@@ -149,8 +154,20 @@ type GoalPatch struct {
 // ProfilePatch changes profile overrides. For each field: Set=false → unchanged;
 // Set=true with nil Value → reset to the shared default.
 type ProfilePatch struct {
-	DisplayName OptString
-	Salary      OptInt
+	DisplayName     OptString
+	Salary          OptInt
+	SalaryMode      *string
+	Advance         OptInt
+	SalaryReminders *bool
+}
+
+// Payout is the per-month state of one expected salary payment (feature 007): dismissal and
+// the one-reminder claim. "Recorded" is not stored here: it is the existence of the p_ record.
+type Payout struct {
+	Month          string     `firestore:"month"`
+	Kind           string     `firestore:"kind"`
+	DismissedAt    *time.Time `firestore:"dismissedAt,omitempty"`
+	ReminderSentAt *time.Time `firestore:"reminderSentAt,omitempty"`
 }
 
 type OptString struct {
@@ -199,6 +216,14 @@ type Store interface {
 	DeleteGoal(ctx context.Context, userID int64, id string, version int64) error
 
 	UpdateProfile(ctx context.Context, userID int64, p ProfilePatch) (User, error)
+
+	// GetPayouts returns the month's payout states keyed by kind (missing = none).
+	GetPayouts(ctx context.Context, userID int64, month string) (map[string]Payout, error)
+	// DismissPayout hides a payment's offer for the month (idempotent).
+	DismissPayout(ctx context.Context, userID int64, month, kind string) error
+	// ClaimReminder atomically marks the reminder as sent, only if not already sent, not
+	// dismissed and the payment record (txID) does not exist. True if this call claimed it.
+	ClaimReminder(ctx context.Context, userID int64, month, kind, txID string) (bool, error)
 
 	// UpdateCategories is a transactional read-modify-write of the user's category list.
 	// version 0 skips the version check; a stale version → *ConflictError{Current: list};

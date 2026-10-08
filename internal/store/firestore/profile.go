@@ -34,6 +34,19 @@ func (s *Store) UpdateProfile(ctx context.Context, userID int64, p store.Profile
 		}
 		ups = append(ups, firestore.Update{Path: "salary", Value: v})
 	}
+	if p.SalaryMode != nil {
+		ups = append(ups, firestore.Update{Path: "salaryMode", Value: *p.SalaryMode})
+	}
+	if p.Advance.Set {
+		var v any = firestore.Delete
+		if p.Advance.Value != nil {
+			v = *p.Advance.Value
+		}
+		ups = append(ups, firestore.Update{Path: "advance", Value: v})
+	}
+	if p.SalaryReminders != nil {
+		ups = append(ups, firestore.Update{Path: "salaryRemindersOff", Value: !*p.SalaryReminders})
+	}
 	if len(ups) > 0 {
 		if _, err := ref.Update(ctx, ups); err != nil {
 			return store.User{}, fmt.Errorf("update profile: %w", err)

@@ -110,9 +110,22 @@ func (c *Client) GetUpdates(ctx context.Context, offset int64, timeout int) ([]U
 }
 
 func appButton(webAppURL string) map[string]any {
+	return appButtonText("📊 Открыть приложение", webAppURL)
+}
+
+func appButtonText(text, webAppURL string) map[string]any {
 	return map[string]any{"inline_keyboard": [][]map[string]any{{
-		{"text": "📊 Открыть приложение", "web_app": map[string]string{"url": webAppURL}},
+		{"text": text, "web_app": map[string]string{"url": webAppURL}},
 	}}}
+}
+
+// SendAppLink sends plain text with one web_app button (button omitted when url is empty).
+func (c *Client) SendAppLink(ctx context.Context, chatID int64, text, button, url string) error {
+	p := map[string]any{"chat_id": chatID, "text": text}
+	if url != "" {
+		p["reply_markup"] = appButtonText(button, url)
+	}
+	return c.callJSON(ctx, "sendMessage", p, nil)
 }
 
 // SendMessage sends Markdown text; webAppURL != "" adds the "Открыть приложение" button.

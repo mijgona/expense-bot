@@ -22,6 +22,8 @@ type Config struct {
 	FirestoreProjectID string `json:"firestore_project_id"`
 	// DevUserID skips initData verification and acts as this user. Local development only.
 	DevUserID int64 `json:"dev_user_id"`
+	// PayrollFakeToday ("2006-01-02T15:04", Dushanbe) freezes the payday reminder clock. Local only.
+	PayrollFakeToday string `json:"payroll_fake_today"`
 }
 
 // Load reads config from a JSON file.
@@ -82,6 +84,9 @@ func (c *Config) applyEnvOverrides() {
 			c.DevUserID = id
 		}
 	}
+	if v := os.Getenv("PAYROLL_FAKE_TODAY"); v != "" {
+		c.PayrollFakeToday = v
+	}
 	if v := os.Getenv("ALLOWED_USER_IDS"); v != "" {
 		c.AllowedUserIDs = nil
 		for _, s := range strings.Split(v, ",") {
@@ -102,6 +107,9 @@ func (c *Config) validate() error {
 	}
 	if c.DevUserID != 0 && os.Getenv("RENDER") != "" {
 		return fmt.Errorf("DEV_USER_ID must not be set on Render: it disables initData verification")
+	}
+	if c.PayrollFakeToday != "" && os.Getenv("RENDER") != "" {
+		return fmt.Errorf("PAYROLL_FAKE_TODAY must not be set on Render")
 	}
 	c.WebAppURL = strings.TrimRight(c.WebAppURL, "/")
 	return nil

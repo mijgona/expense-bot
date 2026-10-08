@@ -4,15 +4,17 @@ interface Props {
   error?: string | null
   label?: string
   autoFocus?: boolean
+  /** DOM id; needed when several amount fields are on one screen. */
+  id?: string
 }
 
 /** Decimal amount field. Validation is done by the caller via parseAmountInput. */
-export function AmountInput({ value, onChange, error, label = 'Сумма, с.', autoFocus = true }: Props) {
+export function AmountInput({ value, onChange, error, label = 'Сумма, с.', autoFocus = true, id = 'amount' }: Props) {
   return (
     <div className="field">
-      <label htmlFor="amount">{label}</label>
+      <label htmlFor={id}>{label}</label>
       <input
-        id="amount"
+        id={id}
         className={'input input-amount' + (error ? ' invalid' : '')}
         inputMode="decimal"
         autoComplete="off"

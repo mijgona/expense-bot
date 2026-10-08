@@ -16,6 +16,7 @@ import (
 // memStore is an in-memory store.Store with the same ledger semantics as the Firestore
 // implementation (Apply/Revert, CheckRunning, versioning, tombstones). Reference for API tests.
 type memStore struct {
+	payouts    map[int64]map[string]store.Payout // key month_kind
 	mu         sync.Mutex
 	users      map[int64]*store.User
 	txs        map[int64]map[string]store.Transaction
@@ -27,7 +28,7 @@ type memStore struct {
 func newMem() *memStore {
 	return &memStore{users: map[int64]*store.User{}, txs: map[int64]map[string]store.Transaction{},
 		months: map[int64]map[string]ledger.Month{}, goals: map[int64]map[string]store.Goal{},
-		tombstones: map[int64]map[string]bool{}}
+		tombstones: map[int64]map[string]bool{}, payouts: map[int64]map[string]store.Payout{}}
 }
 
 func (m *memStore) user(id int64) *store.User {
@@ -419,6 +420,15 @@ func (m *memStore) UpdateProfile(_ context.Context, uid int64, p store.ProfilePa
 	if p.Salary.Set {
 		u.Salary = p.Salary.Value
 	}
+	if p.SalaryMode != nil {
+		u.SalaryMode = *p.SalaryMode
+	}
+	if p.Advance.Set {
+		u.Advance = p.Advance.Value
+	}
+	if p.SalaryReminders != nil {
+		u.SalaryRemindersOff = !*p.SalaryReminders
+	}
 	now := time.Now()
 	u.ProfileUpdatedAt = &now
 	return *u, nil
@@ -446,8 +456,60 @@ func (m *memStore) UpdateCategories(_ context.Context, uid int64, version int64,
 	return list, cur + 1, nil
 }
 
-func (m *memStore) ListUserIDs(context.Context) ([]int64, error) { return nil, nil }
-func (m *memStore) Close() error                                 { return nil }
+func (m *memStore) GetPayouts(_ context.Context, uid int64, month string) (map[string]store.Payout, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := map[string]store.Payout{}
+	for _, p := range m.payouts[uid] {
+		if p.Month == month {
+			out[p.Kind] = p
+		}
+	}
+	return out, nil
+}
+
+func (m *memStore) DismissPayout(_ context.Context, uid int64, month, kind string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.payouts[uid] == nil {
+		m.payouts[uid] = map[string]store.Payout{}
+	}
+	p := m.payouts[uid][month+"_"+kind]
+	now := time.Now()
+	p.Month, p.Kind, p.DismissedAt = month, kind, &now
+	m.payouts[uid][month+"_"+kind] = p
+	return nil
+}
+
+func (m *memStore) ClaimReminder(_ context.Context, uid int64, month, kind, txID string) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.payouts[uid] == nil {
+		m.payouts[uid] = map[string]store.Payout{}
+	}
+	p := m.payouts[uid][month+"_"+kind]
+	if p.ReminderSentAt != nil || p.DismissedAt != nil {
+		return false, nil
+	}
+	if _, ok := m.txs[uid][txID]; ok {
+		return false, nil
+	}
+	now := time.Now()
+	p.Month, p.Kind, p.ReminderSentAt = month, kind, &now
+	m.payouts[uid][month+"_"+kind] = p
+	return true, nil
+}
+
+func (m *memStore) ListUserIDs(context.Context) ([]int64, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var ids []int64
+	for id := range m.users {
+		ids = append(ids, id)
+	}
+	return ids, nil
+}
+func (m *memStore) Close() error { return nil }
 
 // seed inserts a record directly (bypassing validation) with a given business time.
 func (m *memStore) seed(uid int64, id string, k ledger.Kind, cat string, amount int64, note string, at time.Time) {

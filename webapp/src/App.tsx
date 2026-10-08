@@ -2,6 +2,7 @@ import { lazy, Suspense, useCallback, useMemo, useState } from 'react'
 import { NavContext, SessionContext, SessionReloadContext, type Nav, type Screen } from './context'
 import { ApiError, getSession } from './lib/api'
 import { isInsideTelegram, useBackButton } from './lib/telegram'
+import { capturePayoutLink } from './lib/payouts'
 import { useAsync } from './hooks'
 import { Loader } from './components/Loader'
 import { ErrorBanner } from './components/ErrorBanner'
@@ -21,6 +22,9 @@ const History = lazy(() => import('./screens/History').then((m) => ({ default: m
 const EditTransaction = lazy(() => import('./screens/EditTransaction').then((m) => ({ default: m.EditTransaction })))
 const Profile = lazy(() => import('./screens/Profile').then((m) => ({ default: m.Profile })))
 const Categories = lazy(() => import('./screens/Categories').then((m) => ({ default: m.Categories })))
+
+// Reminder button opens WEBAPP_URL?payout=YYYY-MM_kind; Home opens that payment's confirmation (FR-012).
+capturePayoutLink()
 
 // In dev (vite) the Go server authenticates via DEV_USER_ID, so a plain browser is allowed.
 const allowOutside = import.meta.env.DEV

@@ -13,8 +13,11 @@ import type {
   MonthAgg,
   NewGoal,
   NewTransaction,
+  Payout,
+  PayoutKind,
   Profile,
   ProfilePatch,
+  RecordPayout,
   Session,
   Summary,
   Transaction,
@@ -177,6 +180,22 @@ export const patchCategory = (id: string, body: CategoryPatch) =>
 
 export const orderCategories = (body: CategoryOrder) =>
   request<CategoryList>('POST', '/api/categories/order', body)
+
+/** Expected salary payments with status (current month by default; may include last month's last-day payment). */
+export const listPayouts = (month?: string) =>
+  request<{ items: Payout[] }>('GET', '/api/payouts' + qs({ month }))
+
+/** Records a payment as income. Idempotent: a replay returns the existing record (200). */
+export const recordPayout = (month: string, kind: PayoutKind, body: RecordPayout) =>
+  request<WriteResult>(
+    'POST',
+    `/api/payouts/${encodeURIComponent(month)}/${encodeURIComponent(kind)}/record`,
+    body,
+  )
+
+/** Hides the offer for this payment this month without recording anything. */
+export const dismissPayout = (month: string, kind: PayoutKind) =>
+  request<Payout>('POST', `/api/payouts/${encodeURIComponent(month)}/${encodeURIComponent(kind)}/dismiss`)
 
 export const listGoals = () => request<GoalsResponse>('GET', '/api/goals')
 

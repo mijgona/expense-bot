@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"expense-bot/internal/ledger"
+	"expense-bot/internal/payroll"
 )
 
 type summaryResponse struct {
@@ -21,7 +22,14 @@ type summaryResponse struct {
 	CreditDebt     int64                 `json:"creditDebt"`
 	DaysLeft       *int                  `json:"daysLeft"`
 	DailyBudget    *int64                `json:"dailyBudget"`
+	NextPayday     *nextPaydayDTO        `json:"nextPayday"`
 	Categories     []ledger.CategoryLine `json:"categories"`
+}
+
+type nextPaydayDTO struct {
+	Date     string `json:"date"`
+	Kind     string `json:"kind"`
+	DaysLeft int    `json:"daysLeft"`
 }
 
 // buildSummary computes the month report (FR-011, FR-012).
@@ -56,6 +64,13 @@ func (s *Server) buildSummary(ctx context.Context, userID int64, month string) (
 	}
 	if resp.IsCurrent {
 		days, per := ledger.DailyBudget(resp.Remaining, now)
+		if mode, _, _ := payroll.Schedule(u, s.cfg.Salary); mode == payroll.ModeSplit {
+			// Budget until the next payday (007 FR-010).
+			payday, kind := payroll.NextPayday(now, mode)
+			days = payroll.BudgetDays(now, payday)
+			per = resp.Remaining / int64(days)
+			resp.NextPayday = &nextPaydayDTO{Date: payday.Format("2006-01-02"), Kind: string(kind), DaysLeft: days}
+		}
 		resp.DaysLeft, resp.DailyBudget = &days, &per
 	}
 	return resp, nil
