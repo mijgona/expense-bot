@@ -1,6 +1,7 @@
 package api
 
 import (
+	"errors"
 	"fmt"
 	"strconv"
 	"testing"
@@ -353,5 +354,17 @@ func TestGoalEdit(t *testing.T) {
 	}
 	if s := summaryOf(t, e, auth, ""); num(s["savingsBalance"]) != 100000 {
 		t.Errorf("savings changed by goal ops: %v", s["savingsBalance"])
+	}
+}
+
+func TestHistoryTotalFallback(t *testing.T) {
+	e := newEnv()
+	auth := initData(uid)
+	e.mem.seed(uid, "a", ledger.KindExpense, "c_food", 1500, "", monthsAgo(0))
+	e.mem.seed(uid, "b", ledger.KindExpense, "c_food", 2500, "", monthsAgo(0))
+	e.mem.sumErr = errors.New("rpc error: code = FailedPrecondition desc = The query requires an index")
+	code, b := e.do(t, "GET", "/api/transactions?group=expense&category=c_food", auth, "")
+	if code != 200 || len(b["items"].([]any)) != 2 || num(b["total"]) != 4000 || b["totalExact"] != false {
+		t.Errorf("fallback: %d %v", code, b)
 	}
 }

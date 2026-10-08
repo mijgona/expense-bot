@@ -1,6 +1,7 @@
 package api
 
 import (
+	"log"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -209,11 +210,13 @@ func (s *Server) handleListTransactions(w http.ResponseWriter, r *http.Request) 
 
 	total, exact := pageSum, false
 	if f.Q == "" {
-		if total, err = s.store.SumTransactions(r.Context(), uid, f); err != nil {
-			writeStoreError(w, r, err)
-			return
+		// The exact total is a convenience: if the aggregation fails (e.g. a missing index),
+		// fall back to the loaded page instead of failing the whole History request.
+		if sum, err := s.store.SumTransactions(r.Context(), uid, f); err != nil {
+			log.Printf("api: history total (falling back to page sum): %v", err)
+		} else {
+			total, exact = sum, true
 		}
-		exact = true
 	}
 	var nextPtr *string
 	if next != "" {
