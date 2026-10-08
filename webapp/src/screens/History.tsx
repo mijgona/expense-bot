@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useNav, useSession } from '../context'
+import { useNav } from '../context'
+import { useCategories } from '../lib/categories'
 import { listHistory, listMonths } from '../lib/api'
 import { formatSomoni } from '../lib/money'
 import { monthTitle } from '../lib/months'
@@ -33,7 +34,7 @@ const EMPTY: PageState = { items: [], nextCursor: null, total: 0, totalExact: tr
 
 export function History({ filter: initial }: { filter?: Partial<HistoryQuery> }) {
   const nav = useNav()
-  const { categories } = useSession()
+  const { all: categories } = useCategories()
   const months = useAsync(() => listMonths(), [])
   const monthAgg = useMemo(() => {
     const m = new Map<string, MonthAgg>()
@@ -153,8 +154,9 @@ export function History({ filter: initial }: { filter?: Partial<HistoryQuery> })
             >
               <option value="">Все категории</option>
               {categories.map((c) => (
-                <option key={c.name} value={c.name}>
-                  {c.label}
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                  {c.hidden ? ' (скрыта)' : ''}
                 </option>
               ))}
             </select>

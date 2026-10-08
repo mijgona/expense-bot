@@ -9,6 +9,8 @@ import (
 	"cloud.google.com/go/firestore"
 	"google.golang.org/api/iterator"
 
+	"expense-bot/internal/catalog"
+	"expense-bot/internal/category"
 	"expense-bot/internal/ledger"
 	"expense-bot/internal/store"
 )
@@ -325,4 +327,147 @@ func (s *Store) RebuildAggregates(ctx context.Context, userID int64) (map[string
 		}
 	}
 	return months, count, nil
+}
+
+// ConvertReport summarises one user's 006 conversion.
+type ConvertReport struct {
+	Created    []string // category IDs added (defaults and legacy)
+	Legacy     []string // legacy names that became hidden categories
+	Rewritten  int      // records whose category value changed name → ID
+	Mismatches []string
+}
+
+// Convert006 switches a user from category names to per-user category IDs (feature 006,
+// research R5): builds the category map (keeping existing entries), rewrites record
+// categories, drops 005 profile limits, rebuilds aggregates and verifies per-category totals
+// against the before-snapshot. Records keep version/editedAt (schema conversion, not an edit).
+func (s *Store) Convert006(ctx context.Context, userID int64, dryRun bool) (ConvertReport, error) {
+	var rep ConvertReport
+	before, err := s.queryMonths(ctx, s.months(userID).Query)
+	if err != nil {
+		return rep, err
+	}
+	txs, err := s.AllTransactions(ctx, userID)
+	if err != nil {
+		return rep, err
+	}
+	snap, err := s.user(userID).Get(ctx)
+	if err != nil && !notFound(err) {
+		return rep, err
+	}
+	var u store.User
+	var limits005 map[string]int64
+	if snap != nil && snap.Exists() {
+		if err := snap.DataTo(&u); err != nil {
+			return rep, err
+		}
+		if raw, ok := snap.Data()["limits"].(map[string]any); ok {
+			limits005 = map[string]int64{}
+			for k, v := range raw {
+				if n, ok := v.(int64); ok {
+					limits005[k] = n
+				}
+			}
+		}
+	}
+
+	values := make([]string, 0, len(txs))
+	for _, t := range txs {
+		values = append(values, t.Category)
+	}
+	list, mapping := catalog.Convert(u.Categories, values, limits005, time.Now().UTC())
+	for id := range list {
+		if _, ok := u.Categories[id]; !ok {
+			rep.Created = append(rep.Created, id)
+		}
+	}
+	for name, id := range mapping {
+		if catalog.IsID(id) && strings.HasPrefix(id, catalog.IDPrefix+"l") {
+			rep.Legacy = append(rep.Legacy, name)
+		}
+	}
+	for _, t := range txs {
+		if _, ok := mapping[t.Category]; ok {
+			rep.Rewritten++
+		}
+	}
+	if dryRun {
+		return rep, nil
+	}
+
+	bw := s.c.BulkWriter(ctx)
+	var jobs []*firestore.BulkWriterJob
+	for _, t := range txs {
+		id, ok := mapping[t.Category]
+		if !ok {
+			continue
+		}
+		j, err := bw.Set(s.txs(userID).Doc(t.ID), map[string]any{"category": id}, firestore.MergeAll)
+		if err != nil {
+			bw.End()
+			return rep, err
+		}
+		jobs = append(jobs, j)
+	}
+	bw.End()
+	for _, j := range jobs {
+		if _, err := j.Results(); err != nil {
+			return rep, fmt.Errorf("rewrite category: %w", err)
+		}
+	}
+	ver := u.CategoriesVersion
+	if ver == 0 {
+		ver = 1
+	}
+	if _, err := s.user(userID).Set(ctx, map[string]any{
+		"categories": list, "categoriesVersion": ver + 1, "limits": firestore.Delete,
+	}, firestore.Merge([]string{"categories"}, []string{"categoriesVersion"}, []string{"limits"})); err != nil {
+		return rep, fmt.Errorf("write categories: %w", err)
+	}
+	if _, _, err := s.RebuildAggregates(ctx, userID); err != nil {
+		return rep, err
+	}
+
+	// Verify: rebuilt aggregates == before-snapshot re-keyed through the mapping.
+	after, err := s.queryMonths(ctx, s.months(userID).Query)
+	if err != nil {
+		return rep, err
+	}
+	afterBy := map[string]ledger.Month{}
+	for _, m := range after {
+		afterBy[m.Month] = m
+	}
+	for _, b := range before {
+		a := afterBy[b.Month]
+		check := func(field string, want, got int64) {
+			if want != got {
+				rep.Mismatches = append(rep.Mismatches, fmt.Sprintf("month=%s %s: before=%d after=%d", b.Month, field, want, got))
+			}
+		}
+		check("income", b.Income, a.Income)
+		check("expense", b.Expense, a.Expense)
+		check("savingsNet", b.SavingsNet, a.SavingsNet)
+		check("creditCharged", b.CreditCharged, a.CreditCharged)
+		check("creditRepaid", b.CreditRepaid, a.CreditRepaid)
+		check("cashNet", b.CashNet, a.CashNet)
+		for k, v := range catalog.MapTotals(b.ByCategory, mapping) {
+			check("byCategory."+k, v, a.ByCategory[k])
+		}
+		for k, v := range catalog.MapTotals(b.ByCreditCategory, mapping) {
+			check("byCreditCategory."+k, v, a.ByCreditCategory[k])
+		}
+	}
+	// Default limits: the 005 effective limit must equal the new category limit.
+	for _, c := range category.All() {
+		want := int64(c.Limit) * ledger.PerSomoni
+		if v, ok := limits005[c.Name]; ok {
+			want = v
+		}
+		if e, ok := list[catalog.DefaultID(c.Key)]; ok && e.Limit != want {
+			if _, existed := u.Categories[catalog.DefaultID(c.Key)]; !existed {
+				rep.Mismatches = append(rep.Mismatches, fmt.Sprintf("limit %s: before=%d after=%d", c.Key, want, e.Limit))
+			}
+		}
+	}
+	return rep, nil
 }

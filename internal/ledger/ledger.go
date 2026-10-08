@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"sort"
 	"time"
-
-	"expense-bot/internal/category"
 )
 
 // Kind is a ledger transaction type. Amounts are always positive; Kind gives direction.
@@ -142,40 +140,66 @@ func CarryOver(prior []Month) int64 {
 	return total
 }
 
+// CategoryInfo is a user's category as the report needs it (feature 006).
+type CategoryInfo struct {
+	ID       string
+	Label    string
+	Limit    int64 // diram; 0 = no limit
+	Hidden   bool
+	Position int
+}
+
 // CategoryLine is one row of the per-category report.
 type CategoryLine struct {
-	Name   string `json:"name"`
+	ID     string `json:"id"`
 	Label  string `json:"label"`
 	Spent  int64  `json:"spent"`
 	Limit  *int64 `json:"limit"`
 	Status string `json:"status"` // ok | warn | over | none
+	Hidden bool   `json:"hidden"`
 }
 
-// BuildCategoryLines returns every configured category (spent desc), then legacy names.
-// limits holds the user's effective limits in diram (0 = no limit); categories missing from
-// it use the default limit.
-func BuildCategoryLines(m Month, limits map[string]int64) []CategoryLine {
-	var lines []CategoryLine
+// BuildCategoryLines returns visible categories, hidden ones with spending, then unknown keys
+// (spent desc, then position). Keys of m.ByCategory are category IDs.
+func BuildCategoryLines(m Month, cats []CategoryInfo) []CategoryLine {
+	type row struct {
+		CategoryLine
+		pos int
+	}
+	var rows []row
 	known := map[string]bool{}
-	for _, c := range category.All() {
-		known[c.Name] = true
-		limit := int64(c.Limit) * PerSomoni
-		if v, ok := limits[c.Name]; ok {
-			limit = v
+	for _, c := range cats {
+		known[c.ID] = true
+		spent := m.ByCategory[c.ID]
+		if c.Hidden && spent == 0 {
+			continue
 		}
-		spent := m.ByCategory[c.Name]
-		lines = append(lines, CategoryLine{Name: c.Name, Label: c.Label, Spent: spent, Limit: &limit, Status: limitStatus(spent, limit)})
+		limit := c.Limit
+		status := limitStatus(spent, limit)
+		if c.Hidden {
+			status = "none"
+		}
+		rows = append(rows, row{CategoryLine{ID: c.ID, Label: c.Label, Spent: spent, Limit: &limit, Status: status, Hidden: c.Hidden}, c.Position})
 	}
-	sort.SliceStable(lines, func(i, j int) bool { return lines[i].Spent > lines[j].Spent })
-
-	var legacy []CategoryLine
-	for name, spent := range m.ByCategory {
-		if !known[name] && spent != 0 {
-			legacy = append(legacy, CategoryLine{Name: name, Label: name, Spent: spent, Status: "none"})
+	for key, spent := range m.ByCategory {
+		if !known[key] && spent != 0 {
+			rows = append(rows, row{CategoryLine{ID: key, Label: key, Spent: spent, Status: "none", Hidden: true}, 1 << 30})
 		}
 	}
-	sort.Slice(legacy, func(i, j int) bool { return legacy[i].Spent > legacy[j].Spent })
-	return append(lines, legacy...)
+	sort.SliceStable(rows, func(i, j int) bool {
+		if rows[i].Spent != rows[j].Spent {
+			return rows[i].Spent > rows[j].Spent
+		}
+		if rows[i].pos != rows[j].pos {
+			return rows[i].pos < rows[j].pos
+		}
+		return rows[i].ID < rows[j].ID
+	})
+	out := make([]CategoryLine, len(rows))
+	for i, r := range rows {
+		out[i] = r.CategoryLine
+	}
+	return out
 }
 
 func limitStatus(spent, limit int64) string {

@@ -24,6 +24,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	"expense-bot/internal/catalog"
 	"expense-bot/internal/ledger"
 	"expense-bot/internal/store"
 )
@@ -103,11 +104,15 @@ func (s *Store) EnsureUser(ctx context.Context, id int64, firstName, username st
 		}
 		created = true
 		// Merge (not Create): balance fields may already exist from ledger writes.
+		// New users start with the 14 default categories (feature 006, FR-018).
+		u.Categories, u.CategoriesVersion = catalog.Defaults(now), 1
 		return tx.Set(ref, map[string]any{
-			"firstName":    u.FirstName,
-			"username":     u.Username,
-			"registeredAt": u.RegisteredAt,
-			"lastSeenAt":   u.LastSeenAt,
+			"firstName":         u.FirstName,
+			"username":          u.Username,
+			"registeredAt":      u.RegisteredAt,
+			"lastSeenAt":        u.LastSeenAt,
+			"categories":        u.Categories,
+			"categoriesVersion": u.CategoriesVersion,
 		}, firestore.MergeAll)
 	})
 	if err != nil {

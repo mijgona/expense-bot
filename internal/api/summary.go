@@ -52,7 +52,7 @@ func (s *Server) buildSummary(ctx context.Context, userID int64, month string) (
 		Remaining:      carry + m.CashNet,
 		SavingsBalance: u.SavingsBalance,
 		CreditDebt:     u.CreditDebt,
-		Categories:     ledger.BuildCategoryLines(m, s.effective(u).Limits),
+		Categories:     ledger.BuildCategoryLines(m, categoryInfos(u.CategoryList())),
 	}
 	if resp.IsCurrent {
 		days, per := ledger.DailyBudget(resp.Remaining, now)

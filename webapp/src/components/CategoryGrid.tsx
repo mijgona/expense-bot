@@ -1,19 +1,27 @@
-import { useSession } from '../context'
+import { useCategories } from '../lib/categories'
 
-export function CategoryGrid({ selected, onSelect }: { selected: string | null; onSelect(name: string): void }) {
-  const { categories } = useSession()
+/** Picker of visible categories (values are IDs). A selected hidden category is shown as a chip but not offered. */
+export function CategoryGrid({ selected, onSelect }: { selected: string | null; onSelect(id: string): void }) {
+  const { visible, byId, labelOf } = useCategories()
+  const sel = byId(selected)
+  const selectedHidden = selected != null && (!sel || sel.hidden)
   return (
     <div className="field">
       <label>Категория</label>
+      {selectedHidden && (
+        <div className="hint">
+          Выбрано: {labelOf(selected)} <span className="tag">скрыта</span>
+        </div>
+      )}
       <div className="cat-grid">
-        {categories.map((c) => (
+        {visible.map((c) => (
           <button
-            key={c.name}
+            key={c.id}
             type="button"
-            className={'cat' + (selected === c.name ? ' selected' : '')}
-            onClick={() => onSelect(c.name)}
+            className={'cat' + (selected === c.id ? ' selected' : '')}
+            onClick={() => onSelect(c.id)}
           >
-            {c.label}
+            {c.name}
           </button>
         ))}
       </div>

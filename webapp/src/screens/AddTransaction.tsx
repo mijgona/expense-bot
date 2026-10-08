@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react'
-import { useNav, useSession, type AddKind } from '../context'
+import { useNav, type AddKind } from '../context'
 import { addTransaction, ApiError, newClientId } from '../lib/api'
+import { useCategories } from '../lib/categories'
 import { formatSomoni, parseAmountInput } from '../lib/money'
 import { todayDushanbe } from '../lib/months'
 import { haptic } from '../lib/telegram'
@@ -17,7 +18,7 @@ const TITLES: Record<AddKind, string> = {
 
 export function AddTransaction({ kind }: { kind: AddKind }) {
   const nav = useNav()
-  const { categories } = useSession()
+  const { byId } = useCategories()
   const needsCategory = kind !== 'income'
 
   const [amount, setAmount] = useState('')
@@ -78,14 +79,14 @@ export function AddTransaction({ kind }: { kind: AddKind }) {
   if (result) {
     const t = result.transaction
     const s = result.summary
-    const cat = categories.find((c) => c.name === t.category)
-    const line = s.categories.find((c) => c.name === t.category)
+    const cat = byId(t.category)
+    const line = s.categories.find((c) => c.id === t.category)
     return (
       <div className="screen">
         <div className="card success">
           <div className="card-title">✅ Записано</div>
           <div className="big-number">{formatSomoni(t.amount)}</div>
-          {cat && <div>{cat.label}</div>}
+          {cat && <div>{cat.name}</div>}
           {t.note && <div className="hint">{t.note}</div>}
           <div className="row">
             <span>💚 Остаток</span>

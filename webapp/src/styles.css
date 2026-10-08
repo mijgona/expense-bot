@@ -545,30 +545,62 @@ select.input {
   border: 1px solid var(--danger);
 }
 
-.profile-limit {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 110px;
+.card.clickable {
+  cursor: pointer;
+}
+
+.card.clickable:active {
+  opacity: 0.7;
+}
+
+.tag {
+  display: inline-block;
+  font-size: 11px;
+  line-height: 1.4;
+  padding: 0 6px;
+  border-radius: 8px;
+  background: var(--bg2);
+  color: var(--hint);
+  vertical-align: middle;
+}
+
+.cat-row {
+  display: flex;
   align-items: center;
-  gap: 4px 8px;
-  padding: 6px 0;
+  gap: 8px;
+  padding: 8px 0;
   border-bottom: 1px solid var(--bg2);
-}
-
-.profile-limit:last-child {
-  border-bottom: 0;
-}
-
-.profile-limit .input {
-  text-align: right;
   min-width: 0;
 }
 
-.profile-limit .meta {
-  grid-column: 1 / -1;
+.cat-row:last-child {
+  border-bottom: 0;
+}
+
+.cat-row.hidden .cat-main {
+  opacity: 0.55;
+}
+
+.cat-main {
+  flex: 1;
+  min-width: 0;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+
+.cat-tools {
   display: flex;
-  justify-content: space-between;
-  font-size: 12px;
-  color: var(--hint);
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.cat-tools .btn-link:disabled {
+  opacity: 0.35;
+}
+
+.cat-edit {
+  flex: 1;
+  min-width: 0;
 }
 
 .goal-actions {

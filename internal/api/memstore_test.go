@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"expense-bot/internal/catalog"
 	"expense-bot/internal/ledger"
 	"expense-bot/internal/store"
 )
@@ -50,6 +51,7 @@ func (m *memStore) EnsureUser(_ context.Context, id int64, fn, un string) (store
 	}
 	u := m.user(id)
 	u.FirstName, u.Username, u.RegisteredAt = fn, un, time.Now()
+	u.Categories, u.CategoriesVersion = catalog.Defaults(u.RegisteredAt), 1
 	return *u, true, nil
 }
 
@@ -417,19 +419,31 @@ func (m *memStore) UpdateProfile(_ context.Context, uid int64, p store.ProfilePa
 	if p.Salary.Set {
 		u.Salary = p.Salary.Value
 	}
-	for cat, v := range p.Limits {
-		if u.Limits == nil {
-			u.Limits = map[string]int64{}
-		}
-		if v == nil {
-			delete(u.Limits, cat)
-		} else {
-			u.Limits[cat] = *v
-		}
-	}
 	now := time.Now()
 	u.ProfileUpdatedAt = &now
 	return *u, nil
+}
+
+func (m *memStore) UpdateCategories(_ context.Context, uid int64, version int64, fn func(catalog.List) error) (catalog.List, int64, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	u := m.user(uid)
+	list := u.Categories.Clone()
+	if len(list) == 0 {
+		list = catalog.Defaults(time.Now())
+	}
+	cur := u.CategoriesVersion
+	if cur == 0 {
+		cur = 1
+	}
+	if version != 0 && version != cur {
+		return nil, 0, &store.ConflictError{Current: store.CategoryState{List: u.CategoryList(), Version: cur}}
+	}
+	if err := fn(list); err != nil {
+		return nil, 0, err
+	}
+	u.Categories, u.CategoriesVersion = list, cur+1
+	return list, cur + 1, nil
 }
 
 func (m *memStore) ListUserIDs(context.Context) ([]int64, error) { return nil, nil }

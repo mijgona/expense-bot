@@ -82,7 +82,7 @@ export function Report({ month: initial }: { month: string }) {
             <div className="card">
               <div className="card-title">Категории</div>
               {s.categories.map((line) => (
-                <LimitBar key={line.name} line={line} />
+                <LimitBar key={line.id} line={line} />
               ))}
             </div>
           )}

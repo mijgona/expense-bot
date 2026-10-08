@@ -8,7 +8,6 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"expense-bot/internal/category"
 	"expense-bot/internal/ledger"
 	"expense-bot/internal/store"
 )
@@ -25,21 +24,14 @@ type profileInt struct {
 	IsDefault bool  `json:"isDefault"`
 }
 
-type profileLimit struct {
-	Name  string `json:"name"`
-	Label string `json:"label"`
-	profileInt
-}
-
 type profileDTO struct {
 	Telegram struct {
 		FirstName string `json:"firstName"`
 		Username  string `json:"username"`
 	} `json:"telegram"`
-	DisplayName profileString  `json:"displayName"`
-	Salary      profileInt     `json:"salary"`
-	Limits      []profileLimit `json:"limits"`
-	UpdatedAt   *time.Time     `json:"updatedAt"`
+	DisplayName profileString `json:"displayName"`
+	Salary      profileInt    `json:"salary"`
+	UpdatedAt   *time.Time    `json:"updatedAt"`
 }
 
 // effective merges the user's overrides with the shared defaults (research R7).
@@ -53,10 +45,6 @@ func (s *Server) profileOf(u store.User) profileDTO {
 	p.Telegram.FirstName, p.Telegram.Username = u.FirstName, u.Username
 	p.DisplayName = profileString{e.DisplayName, e.DisplayNameDefault, e.DisplayNameIsDefault}
 	p.Salary = profileInt{e.Salary, e.SalaryDefault, e.SalaryIsDefault}
-	for _, c := range category.All() {
-		p.Limits = append(p.Limits, profileLimit{c.Name, c.Label,
-			profileInt{e.Limits[c.Name], e.LimitDefaults[c.Name], e.LimitIsDefault[c.Name]}})
-	}
 	p.UpdatedAt = u.ProfileUpdatedAt
 	return p
 }
@@ -109,29 +97,6 @@ func (s *Server) handlePatchProfile(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			p.Salary.Value = &v
-		case "limits":
-			var lim map[string]json.RawMessage
-			if json.Unmarshal(raw, &lim) != nil {
-				validation(w, "limits", "Лимиты должны быть объектом")
-				return
-			}
-			p.Limits = map[string]*int64{}
-			for cat, lr := range lim {
-				if category.FindByName(cat) == nil {
-					validation(w, "limits."+cat, "Неизвестная категория")
-					return
-				}
-				if isNull(lr) {
-					p.Limits[cat] = nil
-					continue
-				}
-				var v int64
-				if json.Unmarshal(lr, &v) != nil || v < 0 || v > ledger.MaxAmount {
-					validation(w, "limits."+cat, "Лимит: от 0 до 10 000 000 с. (0 — без лимита)")
-					return
-				}
-				p.Limits[cat] = &v
-			}
 		default:
 			validation(w, key, "Неизвестное поле")
 			return

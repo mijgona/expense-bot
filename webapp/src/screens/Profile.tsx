@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import { useSessionReload } from '../context'
+import { useNav, useSessionReload } from '../context'
+import { useCategories } from '../lib/categories'
 import { ApiError, getProfile, patchProfile } from '../lib/api'
 import { diramToInput, formatSomoni, parseAmountInput } from '../lib/money'
 import { haptic, toast } from '../lib/telegram'
@@ -18,27 +19,18 @@ interface Draft {
 interface Form {
   displayName: Draft
   salary: Draft
-  limits: Record<string, Draft>
 }
 
 function toForm(p: ProfileData): Form {
-  const limits: Record<string, Draft> = {}
-  for (const l of p.limits) limits[l.name] = { text: l.value === 0 ? '' : diramToInput(l.value), reset: false }
   return {
     displayName: { text: p.displayName.value, reset: false },
     salary: { text: diramToInput(p.salary.value), reset: false },
-    limits,
   }
 }
 
-/** Limit input: empty or 0 means "no limit" (0). */
-function parseLimit(text: string): { ok: true; diram: number } | { ok: false; error: string } {
-  const t = text.trim()
-  if (t === '' || /^0+([.,]0*)?$/.test(t)) return { ok: true, diram: 0 }
-  return parseAmountInput(t)
-}
-
 export function Profile() {
+  const nav = useNav()
+  const cats = useCategories()
   const reloadSession = useSessionReload()
   const profile = useAsync(() => getProfile(), [])
   const [form, setForm] = useState<Form | null>(null)
@@ -73,12 +65,6 @@ export function Profile() {
         : null
   const salaryParsed = parseAmountInput(form.salary.text)
   const salaryError = form.salary.reset ? null : !salaryParsed.ok ? salaryParsed.error : null
-  const limitErrors: Record<string, string | null> = {}
-  for (const l of p.limits) {
-    const d = form.limits[l.name]
-    const r = parseLimit(d.text)
-    limitErrors[l.name] = d.reset || r.ok ? null : r.error
-  }
 
   // Build the patch: only changed fields; null resets to default.
   const patch: ProfilePatch = {}
@@ -88,19 +74,8 @@ export function Profile() {
   if (form.salary.reset) {
     if (!p.salary.isDefault) patch.salary = null
   } else if (salaryParsed.ok && salaryParsed.diram !== p.salary.value) patch.salary = salaryParsed.diram
-  const limits: Record<string, number | null> = {}
-  for (const l of p.limits) {
-    const d = form.limits[l.name]
-    if (d.reset) {
-      if (!l.isDefault) limits[l.name] = null
-      continue
-    }
-    const r = parseLimit(d.text)
-    if (r.ok && r.diram !== l.value) limits[l.name] = r.diram
-  }
-  if (Object.keys(limits).length) patch.limits = limits
 
-  const hasErrors = !!nameError || !!salaryError || Object.values(limitErrors).some(Boolean)
+  const hasErrors = !!nameError || !!salaryError
   const dirty = Object.keys(patch).length > 0
   const canSave = dirty && !hasErrors && !saving
 
@@ -119,14 +94,6 @@ export function Profile() {
         },
     )
   }
-  function setLimit(name: string, text: string) {
-    setForm((f) => f && { ...f, limits: { ...f.limits, [name]: { text, reset: false } } })
-  }
-  function resetLimit(name: string, def: number) {
-    setForm(
-      (f) => f && { ...f, limits: { ...f.limits, [name]: { text: def === 0 ? '' : diramToInput(def), reset: true } } },
-    )
-  }
 
   async function save() {
     if (!canSave) return
@@ -136,7 +103,7 @@ export function Profile() {
       const updated = await patchProfile(patch)
       profile.reload()
       setForm(toForm(updated))
-      reloadSession() // effective salary / limits / name everywhere (FR-017)
+      reloadSession() // effective salary / name everywhere (FR-017)
       haptic('success')
       toast('Сохранено')
     } catch (e) {
@@ -197,45 +164,19 @@ export function Profile() {
         )}
       </div>
 
-      <div className="card">
-        <div className="card-title">Лимиты по категориям</div>
-        <div className="hint">Пусто или 0 — без лимита. Действуют для всех месяцев.</div>
-        {p.limits.map((l) => {
-          const d = form.limits[l.name]
-          const r = parseLimit(d.text)
-          const changedFromDefault = !d.reset && (!l.isDefault || (r.ok && r.diram !== l.default))
-          const err = limitErrors[l.name] ?? (serverField === `limits.${l.name}` ? apiErr!.message : null)
-          return (
-            <div className="profile-limit" key={l.name}>
-              <label htmlFor={'lim-' + l.name}>{l.label}</label>
-              <input
-                id={'lim-' + l.name}
-                className={'input' + (err ? ' invalid' : '')}
-                inputMode="decimal"
-                autoComplete="off"
-                placeholder="без лимита"
-                value={d.text}
-                onChange={(e) => setLimit(l.name, e.target.value)}
-              />
-              <div className="meta">
-                <span>
-                  {d.reset ? 'будет сброшен' : l.isDefault ? 'по умолчанию' : 'свой'} · стандарт{' '}
-                  {l.default === 0 ? 'без лимита' : formatSomoni(l.default)}
-                </span>
-                {changedFromDefault && (
-                  <button className="btn-link" onClick={() => resetLimit(l.name, l.default)}>
-                    Сбросить
-                  </button>
-                )}
-              </div>
-              {err && <div className="error-text" style={{ gridColumn: '1 / -1' }}>{err}</div>}
-            </div>
-          )
-        })}
+      <div className="card clickable" onClick={() => nav.push({ name: 'categories' })}>
+        <div className="row">
+          <span>🏷 Категории</span>
+          <span className="hint">
+            {cats.visible.length}
+            {cats.all.length > cats.visible.length ? ` + ${cats.all.length - cats.visible.length} скрытых` : ''} ›
+          </span>
+        </div>
+        <div className="hint">Добавить, переименовать, скрыть, лимиты и порядок</div>
       </div>
 
       {error != null && !serverField && <ErrorBanner error={error} onRetry={canSave ? save : undefined} />}
-      {serverField && !['displayName', 'salary'].includes(serverField) && !serverField.startsWith('limits.') && (
+      {serverField && !['displayName', 'salary'].includes(serverField) && (
         <ErrorBanner error={error} />
       )}
 

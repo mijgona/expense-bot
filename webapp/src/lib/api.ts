@@ -1,6 +1,10 @@
 import { tg } from './telegram'
 import type {
   AdvisorReport,
+  CategoryList,
+  CategoryOrder,
+  CategoryPatch,
+  NewCategory,
   Goal,
   GoalPatch,
   GoalsResponse,
@@ -31,7 +35,7 @@ interface ErrorBody {
   at?: string
   /** Balance rule: would-be balance at `at` (diram, negative). */
   balance?: number
-  /** Conflict: the current record or goal. */
+  /** Conflict: the current record, goal or category list. */
   current?: unknown
 }
 
@@ -163,6 +167,16 @@ export const listMonths = (from?: string, to?: string) =>
 export const getProfile = () => request<Profile>('GET', '/api/profile')
 
 export const patchProfile = (body: ProfilePatch) => request<Profile>('PATCH', '/api/profile', body)
+
+export const listCategories = () => request<CategoryList>('GET', '/api/categories')
+
+export const addCategory = (body: NewCategory) => request<CategoryList>('POST', '/api/categories', body)
+
+export const patchCategory = (id: string, body: CategoryPatch) =>
+  request<CategoryList>('PATCH', `/api/categories/${encodeURIComponent(id)}`, body)
+
+export const orderCategories = (body: CategoryOrder) =>
+  request<CategoryList>('POST', '/api/categories/order', body)
 
 export const listGoals = () => request<GoalsResponse>('GET', '/api/goals')
 

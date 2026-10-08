@@ -129,7 +129,7 @@ func TestTransactionsFlow(t *testing.T) {
 	e := newEnv()
 	auth := initData(42)
 
-	code, b := e.do(t, "POST", "/api/transactions", auth, `{"clientId":"`+uuid1+`","kind":"expense","amount":35000,"category":"Транспорт","note":"такси"}`)
+	code, b := e.do(t, "POST", "/api/transactions", auth, `{"clientId":"`+uuid1+`","kind":"expense","amount":35000,"category":"c_transport","note":"такси"}`)
 	if code != 201 {
 		t.Fatalf("create: %d %v", code, b)
 	}
@@ -137,7 +137,7 @@ func TestTransactionsFlow(t *testing.T) {
 		t.Errorf("remaining = %v", rem)
 	}
 	// idempotent retry
-	if code, _ := e.do(t, "POST", "/api/transactions", auth, `{"clientId":"`+uuid1+`","kind":"expense","amount":35000,"category":"Транспорт"}`); code != 200 {
+	if code, _ := e.do(t, "POST", "/api/transactions", auth, `{"clientId":"`+uuid1+`","kind":"expense","amount":35000,"category":"c_transport"}`); code != 200 {
 		t.Errorf("retry: %d, want 200", code)
 	}
 	_, s := e.do(t, "GET", "/api/summary", auth, "")
@@ -146,11 +146,11 @@ func TestTransactionsFlow(t *testing.T) {
 	}
 
 	cases := []struct{ body, field string }{
-		{`{"clientId":"x","kind":"expense","amount":1,"category":"Еда"}`, "clientId"},
+		{`{"clientId":"x","kind":"expense","amount":1,"category":"c_food"}`, "clientId"},
 		{`{"clientId":"` + uuid2 + `","kind":"refund","amount":1}`, "kind"},
-		{`{"clientId":"` + uuid2 + `","kind":"expense","amount":0,"category":"Еда"}`, "amount"},
+		{`{"clientId":"` + uuid2 + `","kind":"expense","amount":0,"category":"c_food"}`, "amount"},
 		{`{"clientId":"` + uuid2 + `","kind":"expense","amount":5,"category":"Нет такой"}`, "category"},
-		{`{"clientId":"` + uuid2 + `","kind":"income","amount":5,"category":"Еда"}`, "category"},
+		{`{"clientId":"` + uuid2 + `","kind":"income","amount":5,"category":"c_food"}`, "category"},
 	}
 	for _, c := range cases {
 		code, b := e.do(t, "POST", "/api/transactions", auth, c.body)

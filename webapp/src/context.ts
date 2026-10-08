@@ -14,6 +14,8 @@ export type Screen =
   | { name: 'history'; filter?: Partial<HistoryQuery> }
   | { name: 'edit'; tx: Transaction }
   | { name: 'profile' }
+  /** Category management — opened only from Profile (feature 006). */
+  | { name: 'categories' }
 
 export interface Nav {
   push(screen: Screen): void
@@ -35,7 +37,7 @@ export function useSession(): Session {
   return s
 }
 
-/** Refetches /api/session (effective salary, limits, display name) after profile changes. */
+/** Refetches /api/session (effective salary, display name, categories) after profile / category changes. */
 export const SessionReloadContext = createContext<(() => void) | null>(null)
 
 export function useSessionReload(): () => void {

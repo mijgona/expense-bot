@@ -16,7 +16,9 @@ import (
 	"log"
 	"os"
 	"sort"
+	"time"
 
+	"expense-bot/internal/catalog"
 	"expense-bot/internal/ledger"
 	"expense-bot/internal/sheets"
 	"expense-bot/internal/store"
@@ -28,10 +30,45 @@ func main() {
 	onlyUser := flag.Int64("user", 0, "migrate a single Telegram user ID")
 	rebuildOnly := flag.Bool("rebuild", false, "skip import; rebuild aggregates from Firestore transactions and verify")
 	backfill005 := flag.Bool("backfill-005", false, "set occurredAt/version on existing records (feature 005), nothing else")
+	convert006 := flag.Bool("convert-006", false, "switch categories from names to per-user IDs (feature 006); verifies totals")
 	flag.Parse()
 
 	ctx := context.Background()
 	creds := loadCredentials()
+
+	if *convert006 {
+		st := mustStore(ctx, creds)
+		defer st.Close()
+		ids := []int64{*onlyUser}
+		if *onlyUser == 0 {
+			var err error
+			if ids, err = st.ListUserIDs(ctx); err != nil {
+				log.Fatal(err)
+			}
+		}
+		rewritten, mismatches := 0, 0
+		for _, id := range ids {
+			rep, err := st.Convert006(ctx, id, *dryRun)
+			if err != nil {
+				log.Fatalf("user %d: convert: %v", id, err)
+			}
+			fmt.Printf("user %d: +%d categories, legacy %v, %d records to rewrite\n", id, len(rep.Created), rep.Legacy, rep.Rewritten)
+			for _, m := range rep.Mismatches {
+				fmt.Printf("MISMATCH user=%d %s\n", id, m)
+			}
+			rewritten += rep.Rewritten
+			mismatches += len(rep.Mismatches)
+		}
+		if *dryRun {
+			fmt.Printf("dry-run: %d users, %d records would be rewritten, nothing written\n", len(ids), rewritten)
+			return
+		}
+		fmt.Printf("convert: %d users, %d records rewritten, %d mismatches\n", len(ids), rewritten, mismatches)
+		if mismatches > 0 {
+			os.Exit(1)
+		}
+		return
+	}
 
 	if *backfill005 {
 		st := mustStore(ctx, creds)
@@ -113,6 +150,9 @@ func main() {
 		}
 		if err := st.UpsertUserRaw(ctx, sheets.MapUser(u)); err != nil {
 			log.Fatalf("user %d: upsert user: %v", id, err)
+		}
+		if err := resolveCategories(ctx, st, id, data.txs); err != nil {
+			log.Fatalf("user %d: categories: %v", id, err)
 		}
 		skippedEdited, skippedDeleted, err := st.UpsertTransactionsRaw(ctx, id, data.txs)
 		if err != nil {
@@ -409,4 +449,34 @@ func mustStore(ctx context.Context, creds []byte) *firestore.Store {
 		log.Fatal(err)
 	}
 	return st
+}
+
+// resolveCategories maps sheet category names to the user's category IDs (feature 006),
+// adding hidden legacy categories for unknown names, so the importer never writes names.
+func resolveCategories(ctx context.Context, st *firestore.Store, userID int64, txs []store.Transaction) error {
+	var names []string
+	for _, t := range txs {
+		if t.Category != "" && !catalog.IsID(t.Category) {
+			names = append(names, t.Category)
+		}
+	}
+	if len(names) == 0 {
+		return nil
+	}
+	list, _, err := st.UpdateCategories(ctx, userID, 0, func(l catalog.List) error {
+		merged, _ := catalog.Convert(l, names, nil, time.Now().UTC())
+		for id, e := range merged {
+			l[id] = e
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	for i := range txs {
+		if txs[i].Category != "" {
+			txs[i].Category = list.Resolve(txs[i].Category)
+		}
+	}
+	return nil
 }

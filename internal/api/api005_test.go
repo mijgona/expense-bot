@@ -36,7 +36,7 @@ func summaryOf(t *testing.T, e testEnv, auth, month string) map[string]any {
 func catSpent(s map[string]any, name string) int64 {
 	for _, c := range s["categories"].([]any) {
 		m := c.(map[string]any)
-		if m["name"] == name {
+		if m["id"] == name {
 			return num(m["spent"])
 		}
 	}
@@ -52,9 +52,9 @@ func TestHistory(t *testing.T) {
 		at := monthsAgo(i % 3).Add(time.Duration(i) * time.Minute)
 		switch i % 4 {
 		case 0:
-			e.mem.seed(uid, "t"+strconv.Itoa(i), ledger.KindExpense, "Еда", 1000, "обед", at)
+			e.mem.seed(uid, "t"+strconv.Itoa(i), ledger.KindExpense, "c_food", 1000, "обед", at)
 		case 1:
-			e.mem.seed(uid, "t"+strconv.Itoa(i), ledger.KindExpense, "Транспорт", 500, "Такси домой", at)
+			e.mem.seed(uid, "t"+strconv.Itoa(i), ledger.KindExpense, "c_transport", 500, "Такси домой", at)
 		case 2:
 			e.mem.seed(uid, "t"+strconv.Itoa(i), ledger.KindIncome, "", 5000, "", at)
 		case 3:
@@ -95,12 +95,12 @@ func TestHistory(t *testing.T) {
 
 	// group + category + month, exact total
 	m := ledger.MonthKey(monthsAgo(0))
-	_, b := e.do(t, "GET", "/api/transactions?group=expense&category=Еда&month="+m, auth, "")
+	_, b := e.do(t, "GET", "/api/transactions?group=expense&category=c_food&month="+m, auth, "")
 	items := b["items"].([]any)
 	var sum int64
 	for _, it := range items {
 		x := it.(map[string]any)
-		if x["kind"] != "expense" || x["category"] != "Еда" || x["month"] != m {
+		if x["kind"] != "expense" || x["category"] != "c_food" || x["month"] != m {
 			t.Fatalf("filter leak: %v", x)
 		}
 		sum += num(x["amount"])
@@ -145,19 +145,19 @@ func TestEditTransaction(t *testing.T) {
 	auth := initData(uid)
 	prevMonth := ledger.MonthKey(monthsAgo(1))
 	curMonth := ledger.MonthKey(ledger.Now())
-	e.mem.seed(uid, "x1", ledger.KindExpense, "Транспорт", 35000, "такси", monthsAgo(1))
+	e.mem.seed(uid, "x1", ledger.KindExpense, "c_transport", 35000, "такси", monthsAgo(1))
 	e.mem.seed(uid, "inc", ledger.KindIncome, "", 1000000, "", monthsAgo(1))
 	before := summaryOf(t, e, auth, curMonth)
 
 	// same-month edit: 350 Транспорт → 530 Еда
 	code, b := e.do(t, "PATCH", "/api/transactions/x1", auth,
-		`{"version":1,"requestId":"`+uuidN(1)+`","amount":53000,"category":"Еда"}`)
+		`{"version":1,"requestId":"`+uuidN(1)+`","amount":53000,"category":"c_food"}`)
 	if code != 200 || num(b["transaction"].(map[string]any)["version"]) != 2 || b["transaction"].(map[string]any)["editedAt"] == nil {
 		t.Fatalf("patch: %d %v", code, b)
 	}
 	s := summaryOf(t, e, auth, prevMonth)
-	if catSpent(s, "Транспорт") != 0 || catSpent(s, "Еда") != 53000 || num(s["expense"]) != 53000 {
-		t.Errorf("prev month after edit: Транспорт %d, Еда %d, expense %v", catSpent(s, "Транспорт"), catSpent(s, "Еда"), s["expense"])
+	if catSpent(s, "c_transport") != 0 || catSpent(s, "c_food") != 53000 || num(s["expense"]) != 53000 {
+		t.Errorf("prev month after edit: Транспорт %d, Еда %d, expense %v", catSpent(s, "c_transport"), catSpent(s, "c_food"), s["expense"])
 	}
 	after := summaryOf(t, e, auth, curMonth)
 	if num(after["carryOver"]) != num(before["carryOver"])-18000 {
@@ -166,7 +166,7 @@ func TestEditTransaction(t *testing.T) {
 
 	// idempotent retry with the same requestId
 	code, b = e.do(t, "PATCH", "/api/transactions/x1", auth,
-		`{"version":1,"requestId":"`+uuidN(1)+`","amount":53000,"category":"Еда"}`)
+		`{"version":1,"requestId":"`+uuidN(1)+`","amount":53000,"category":"c_food"}`)
 	if code != 200 || num(b["transaction"].(map[string]any)["version"]) != 2 {
 		t.Errorf("retry: %d version %v", code, b["transaction"])
 	}
@@ -186,8 +186,8 @@ func TestEditTransaction(t *testing.T) {
 	if s := summaryOf(t, e, auth, prevMonth); num(s["expense"]) != 0 {
 		t.Errorf("prev month still has expense %v", s["expense"])
 	}
-	if s := summaryOf(t, e, auth, curMonth); catSpent(s, "Еда") != 53000 {
-		t.Errorf("current month Еда = %d", catSpent(s, "Еда"))
+	if s := summaryOf(t, e, auth, curMonth); catSpent(s, "c_food") != 53000 {
+		t.Errorf("current month Еда = %d", catSpent(s, "c_food"))
 	}
 
 	// validation
@@ -204,7 +204,7 @@ func TestEditTransaction(t *testing.T) {
 			t.Errorf("%s: %d %v", c.body, code, b)
 		}
 	}
-	if code, _ := e.do(t, "PATCH", "/api/transactions/inc", auth, `{"version":1,"requestId":"`+uuidN(5)+`","category":"Еда"}`); code != 400 {
+	if code, _ := e.do(t, "PATCH", "/api/transactions/inc", auth, `{"version":1,"requestId":"`+uuidN(5)+`","category":"c_food"}`); code != 400 {
 		t.Errorf("category on income: %d", code)
 	}
 	if code, _ := e.do(t, "PATCH", "/api/transactions/x1", auth, `{"version":3,"requestId":"`+uuidN(6)+`","kind":"income"}`); code != 400 {
@@ -234,8 +234,8 @@ func TestEditBalanceRule(t *testing.T) {
 	}
 	// already-negative credit history doesn't block unrelated edits
 	e.mem.seed(uid, "rep", ledger.KindCreditRepayment, "", 314600, "", d1)
-	e.mem.seed(uid, "buy", ledger.KindCreditPurchase, "Еда", 500000, "", d1.Add(240*time.Hour))
-	e.mem.seed(uid, "food", ledger.KindExpense, "Еда", 1000, "", d1)
+	e.mem.seed(uid, "buy", ledger.KindCreditPurchase, "c_food", 500000, "", d1.Add(240*time.Hour))
+	e.mem.seed(uid, "food", ledger.KindExpense, "c_food", 1000, "", d1)
 	if code, b := e.do(t, "PATCH", "/api/transactions/food", auth, `{"version":1,"requestId":"`+uuidN(3)+`","amount":2000}`); code != 200 {
 		t.Errorf("unrelated edit blocked: %d %v", code, b)
 	}
@@ -254,7 +254,7 @@ func TestDeleteTransaction(t *testing.T) {
 	auth := initData(uid)
 	cur := ledger.MonthKey(ledger.Now())
 	base := summaryOf(t, e, auth, cur)
-	e.do(t, "POST", "/api/transactions", auth, `{"clientId":"`+uuidN(1)+`","kind":"expense","amount":10000,"category":"Еда"}`)
+	e.do(t, "POST", "/api/transactions", auth, `{"clientId":"`+uuidN(1)+`","kind":"expense","amount":10000,"category":"c_food"}`)
 
 	if code, _ := e.do(t, "DELETE", "/api/transactions/"+uuidN(1)+"?version=2", auth, ""); code != 409 {
 		t.Errorf("stale delete: %d", code)
@@ -275,7 +275,7 @@ func TestDeleteTransaction(t *testing.T) {
 	}
 
 	// migrated record leaves a tombstone
-	e.mem.seed(uid, "m_abc", ledger.KindExpense, "Еда", 500, "", monthsAgo(1))
+	e.mem.seed(uid, "m_abc", ledger.KindExpense, "c_food", 500, "", monthsAgo(1))
 	e.do(t, "DELETE", "/api/transactions/m_abc?version=1", auth, "")
 	if !e.mem.tombstones[uid]["m_abc"] {
 		t.Error("no tombstone for migrated record")
@@ -291,8 +291,10 @@ func TestProfile(t *testing.T) {
 	if num(p["salary"].(map[string]any)["value"]) != 1600000 || p["salary"].(map[string]any)["isDefault"] != true {
 		t.Fatalf("default salary: %v", p["salary"])
 	}
-
-	code, p := e.do(t, "PATCH", "/api/profile", auth, `{"salary":2000000,"displayName":"Мижгона","limits":{"Еда":300000,"Связь":0}}`)
+	if _, ok := p["limits"]; ok {
+		t.Error("profile still returns limits (moved to categories in 006)")
+	}
+	code, p := e.do(t, "PATCH", "/api/profile", auth, `{"salary":2000000,"displayName":"Мижгона"}`)
 	if code != 200 {
 		t.Fatalf("patch: %d %v", code, p)
 	}
@@ -300,44 +302,20 @@ func TestProfile(t *testing.T) {
 	if num(s["salary"]) != 2000000 || s["user"].(map[string]any)["displayName"] != "Мижгона" {
 		t.Errorf("session: salary %v name %v", s["salary"], s["user"])
 	}
-	limits := map[string]int64{}
-	for _, c := range s["categories"].([]any) {
-		limits[c.(map[string]any)["name"].(string)] = num(c.(map[string]any)["limit"])
+	e.do(t, "PATCH", "/api/profile", auth, `{"salary":null}`)
+	if _, s = e.do(t, "POST", "/api/session", auth, ""); num(s["salary"]) != 1600000 {
+		t.Errorf("salary reset: %v", s["salary"])
 	}
-	if limits["Еда"] != 300000 || limits["Связь"] != 0 || limits["Транспорт"] != 100000 {
-		t.Errorf("effective limits: %v", limits)
-	}
-	for _, c := range summaryOf(t, e, auth, "")["categories"].([]any) {
-		m := c.(map[string]any)
-		if m["name"] == "Связь" && m["status"] != "none" {
-			t.Errorf("Связь status = %v", m["status"])
-		}
-	}
-
-	// reset one limit
-	e.do(t, "PATCH", "/api/profile", auth, `{"limits":{"Еда":null}}`)
-	_, p = e.do(t, "GET", "/api/profile", auth, "")
-	for _, l := range p["limits"].([]any) {
-		m := l.(map[string]any)
-		if m["name"] == "Еда" && (num(m["value"]) != 200000 || m["isDefault"] != true) {
-			t.Errorf("Еда after reset: %v", m)
-		}
-	}
-
-	// validation
 	for body, field := range map[string]string{
-		`{"limits":{"Нет такой":100}}`:                      "limits.Нет такой",
-		`{"limits":{"Еда":-1}}`:                             "limits.Еда",
-		`{"salary":0}`:                                      "salary",
-		`{"displayName":"` + string(make([]byte, 0)) + `"}`: "displayName",
+		`{"limits":{"c_food":100}}`: "limits",
+		`{"salary":0}`:              "salary",
+		`{"displayName":""}`:        "displayName",
 	} {
 		code, b := e.do(t, "PATCH", "/api/profile", auth, body)
 		if code != 400 || b["error"].(map[string]any)["field"] != field {
 			t.Errorf("%s: %d %v", body, code, b)
 		}
 	}
-
-	// other user unaffected
 	_, other := e.do(t, "GET", "/api/profile", initData(7), "")
 	if num(other["salary"].(map[string]any)["value"]) != 1600000 {
 		t.Error("other user's salary changed")

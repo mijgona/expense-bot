@@ -1,4 +1,5 @@
-// Mirrors specs/004-telegram-mini-app/contracts/api.openapi.yaml. Amounts are integer diram.
+// Mirrors specs/006-custom-categories/contracts/api.openapi.yaml (v2.0.0). Amounts are integer diram.
+// Categories are per-user and referenced by ID (c_…) everywhere.
 
 export type Kind =
   | 'expense'
@@ -9,10 +10,41 @@ export type Kind =
   | 'credit_repayment'
 
 export interface Category {
+  /** Permanent ID (c_…); records, filters and summary lines reference it. */
+  id: string
+  /** Current display name (emoji allowed, 1–30 chars). */
   name: string
-  label: string
-  /** Effective per-user limit in diram; 0 = no limit. */
+  /** Monthly limit in diram; 0 = no limit. */
   limit: number
+  /** Hidden categories are not offered for new records / category changes. */
+  hidden: boolean
+  position: number
+  isDefault: boolean
+}
+
+export interface CategoryList {
+  /** categoriesVersion — send back on PATCH / order. */
+  version: number
+  /** All categories incl. hidden, by position. */
+  items: Category[]
+}
+
+export interface NewCategory {
+  clientId: string
+  name: string
+  limit?: number
+}
+
+export interface CategoryPatch {
+  version: number
+  name?: string
+  limit?: number
+  hidden?: boolean
+}
+
+export interface CategoryOrder {
+  version: number
+  ids: string[]
 }
 
 export interface Session {
@@ -26,7 +58,9 @@ export interface Session {
     isNew: boolean
   }
   salary: number
+  /** All of the user's categories incl. hidden, ordered by position. Pickers show only hidden=false. */
   categories: Category[]
+  categoriesVersion: number
   currentMonth: string
   firstMonth: string | null
 }
@@ -34,11 +68,15 @@ export interface Session {
 export type LimitStatus = 'ok' | 'warn' | 'over' | 'none'
 
 export interface CategoryLine {
-  name: string
+  /** Category ID. */
+  id: string
+  /** Current category name. */
   label: string
   spent: number
   limit: number | null
   status: LimitStatus
+  /** Hidden categories appear only when spent > 0 in the month. */
+  hidden: boolean
 }
 
 export interface Summary {
@@ -126,16 +164,10 @@ export interface ProfileValue<T> {
   isDefault: boolean
 }
 
-export interface ProfileLimit extends ProfileValue<number> {
-  name: string
-  label: string
-}
-
 export interface Profile {
   telegram: { firstName: string; username: string }
   displayName: ProfileValue<string>
   salary: ProfileValue<number>
-  limits: ProfileLimit[]
   updatedAt?: string | null
 }
 
@@ -143,7 +175,6 @@ export interface ProfilePatch {
   /** null resets to the default */
   displayName?: string | null
   salary?: number | null
-  limits?: Record<string, number | null>
 }
 
 export interface WriteResult {

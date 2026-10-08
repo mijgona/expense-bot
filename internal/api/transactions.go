@@ -8,7 +8,6 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"expense-bot/internal/category"
 	"expense-bot/internal/ledger"
 	"expense-bot/internal/store"
 )
@@ -89,13 +88,20 @@ func (s *Server) handleAddTransaction(w http.ResponseWriter, r *http.Request) {
 		validation(w, "note", err.Error())
 		return
 	}
-	switch {
-	case kind.NeedsCategory() && category.FindByName(in.Category) == nil:
-		validation(w, "category", "Выберите категорию")
-		return
-	case !kind.NeedsCategory() && in.Category != "":
+	if !kind.NeedsCategory() && in.Category != "" {
 		validation(w, "category", "Для этой записи категория не нужна")
 		return
+	}
+	if kind.NeedsCategory() {
+		ok, err := s.usableCategory(r, in.Category)
+		if err != nil {
+			writeStoreError(w, r, err)
+			return
+		}
+		if !ok {
+			validation(w, "category", "Выберите категорию из списка")
+			return
+		}
 	}
 
 	now := ledger.Now()
@@ -273,11 +279,16 @@ func (s *Server) handlePatchTransaction(w http.ResponseWriter, r *http.Request) 
 			writeStoreError(w, r, err)
 			return
 		}
-		switch {
-		case !cur.Kind.NeedsCategory():
+		if !cur.Kind.NeedsCategory() {
 			validation(w, "category", "Для этой записи категория не нужна")
 			return
-		case category.FindByName(*in.Category) == nil:
+		}
+		ok, err := s.usableCategory(r, *in.Category)
+		if err != nil {
+			writeStoreError(w, r, err)
+			return
+		}
+		if !ok {
 			validation(w, "category", "Выберите категорию из списка")
 			return
 		}

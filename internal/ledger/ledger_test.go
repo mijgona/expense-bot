@@ -85,31 +85,44 @@ func TestCarryOver(t *testing.T) {
 	}
 }
 
+func cats() []CategoryInfo {
+	return []CategoryInfo{
+		{ID: "c_food", Label: "🍽 Еда", Limit: 200000, Position: 0},
+		{ID: "c_transport", Label: "🚗 Транспорт", Limit: 100000, Position: 1},
+		{ID: "c_phone", Label: "📱 Связь", Limit: 20000, Position: 2},
+		{ID: "c_clothes", Label: "👗 Одежда", Limit: 100000, Position: 3},
+		{ID: "c_kids", Label: "🎒 Дети", Limit: 300000, Position: 4, Hidden: true},
+		{ID: "c_old", Label: "Старое", Limit: 0, Position: 5, Hidden: true},
+	}
+}
+
 func TestBuildCategoryLines(t *testing.T) {
-	// Еда limit 2000 с. = 200000; Связь 200 с. = 20000; Транспорт 1000 с. = 100000
 	m := Month{ByCategory: map[string]int64{
-		"Еда":       160000, // 80% exactly → ok
-		"Связь":     20001,  // >100% → over
-		"Транспорт": 80001,  // >80% → warn
-		"Старое":    5000,   // legacy
+		"c_food":      160000, // 80% exactly → ok
+		"c_phone":     20001,  // >100% → over
+		"c_transport": 80001,  // >80% → warn
+		"c_kids":      5000,   // hidden with spending → shown, status none
+		"c_ghost":     700,    // unknown key → shown raw
 	}}
-	lines := BuildCategoryLines(m, nil)
-	if lines[0].Name != "Еда" || lines[1].Name != "Транспорт" || lines[2].Name != "Связь" {
-		t.Fatalf("order = %s, %s, %s", lines[0].Name, lines[1].Name, lines[2].Name)
+	lines := BuildCategoryLines(m, cats())
+	if lines[0].ID != "c_food" || lines[1].ID != "c_transport" || lines[2].ID != "c_phone" {
+		t.Fatalf("order = %s, %s, %s", lines[0].ID, lines[1].ID, lines[2].ID)
 	}
-	status := map[string]string{}
+	got := map[string]CategoryLine{}
 	for _, l := range lines {
-		status[l.Name] = l.Status
+		got[l.ID] = l
 	}
-	want := map[string]string{"Еда": "ok", "Транспорт": "warn", "Связь": "over", "Старое": "none", "Одежда": "ok"}
+	want := map[string]string{"c_food": "ok", "c_transport": "warn", "c_phone": "over", "c_clothes": "ok", "c_kids": "none", "c_ghost": "none"}
 	for k, v := range want {
-		if status[k] != v {
-			t.Errorf("status[%s] = %q, want %q", k, status[k], v)
+		if got[k].Status != v {
+			t.Errorf("status[%s] = %q, want %q", k, got[k].Status, v)
 		}
 	}
-	last := lines[len(lines)-1]
-	if last.Name != "Старое" || last.Limit != nil {
-		t.Errorf("legacy line = %+v, want last with nil limit", last)
+	if _, ok := got["c_old"]; ok {
+		t.Error("hidden category without spending is listed")
+	}
+	if !got["c_kids"].Hidden || got["c_ghost"].Limit != nil || got["c_ghost"].Label != "c_ghost" {
+		t.Errorf("hidden/unknown lines: %+v %+v", got["c_kids"], got["c_ghost"])
 	}
 }
 
@@ -237,21 +250,15 @@ func TestEditDelta(t *testing.T) {
 	}
 }
 
-func TestBuildCategoryLinesPersonalLimits(t *testing.T) {
-	m := Month{ByCategory: map[string]int64{"Еда": 250000, "Связь": 50000}}
-	lines := BuildCategoryLines(m, map[string]int64{"Еда": 300000, "Связь": 0})
-	got := map[string]CategoryLine{}
-	for _, l := range lines {
-		got[l.Name] = l
+func TestBuildCategoryLinesLimitZeroAndPositionTies(t *testing.T) {
+	c := cats()
+	c[2].Limit = 0 // Связь: no limit
+	lines := BuildCategoryLines(Month{ByCategory: map[string]int64{"c_phone": 50000}}, c)
+	if lines[0].ID != "c_phone" || lines[0].Status != "none" || *lines[0].Limit != 0 {
+		t.Errorf("limit 0 line = %+v", lines[0])
 	}
-	if got["Еда"].Status != "warn" || *got["Еда"].Limit != 300000 {
-		t.Errorf("Еда = %+v (want warn at 300000)", got["Еда"])
-	}
-	if got["Связь"].Status != "none" || *got["Связь"].Limit != 0 {
-		t.Errorf("Связь = %+v (want none, limit 0)", got["Связь"])
-	}
-	// categories missing from the map fall back to defaults
-	if *got["Транспорт"].Limit != 100000 {
-		t.Errorf("Транспорт default limit = %d", *got["Транспорт"].Limit)
+	// equal (zero) spending: ordered by position
+	if lines[1].ID != "c_food" || lines[2].ID != "c_transport" {
+		t.Errorf("ties = %s, %s", lines[1].ID, lines[2].ID)
 	}
 }

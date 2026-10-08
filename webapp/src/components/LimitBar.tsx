@@ -4,8 +4,8 @@ import { formatSomoni } from '../lib/money'
 const ICON: Record<CategoryLine['status'], string> = { ok: '🟢', warn: '🟡', over: '🔴', none: '•' }
 
 export function LimitBar({ line }: { line: CategoryLine }) {
-  // Legacy category (null) or personal limit 0 ("без лимита"): amount only, no bar.
-  if (line.limit === null || line.limit === 0) {
+  // Hidden category, unknown key (null) or limit 0 ("без лимита"): amount only, no bar.
+  if (line.hidden || line.limit === null || line.limit === 0) {
     return (
       <div className="limit">
         <div className="row">
@@ -14,7 +14,11 @@ export function LimitBar({ line }: { line: CategoryLine }) {
           </span>
           <span>
             {formatSomoni(line.spent)}
-            {line.limit === 0 && <span className="hint"> · без лимита</span>}
+            {line.hidden ? (
+              <span className="tag"> скрыта</span>
+            ) : (
+              line.limit === 0 && <span className="hint"> · без лимита</span>
+            )}
           </span>
         </div>
       </div>

@@ -11,7 +11,7 @@ import (
 )
 
 // UpdateProfile applies profile overrides; a nil value resets that setting to the default.
-// Category names contain spaces and Cyrillic, so limits use FieldPath, not dotted strings.
+// Category limits live in the category list since feature 006.
 func (s *Store) UpdateProfile(ctx context.Context, userID int64, p store.ProfilePatch) (store.User, error) {
 	ref := s.user(userID)
 	// Make sure the document exists so Update does not fail with NotFound.
@@ -33,13 +33,6 @@ func (s *Store) UpdateProfile(ctx context.Context, userID int64, p store.Profile
 			v = *p.Salary.Value
 		}
 		ups = append(ups, firestore.Update{Path: "salary", Value: v})
-	}
-	for cat, val := range p.Limits {
-		var v any = firestore.Delete
-		if val != nil {
-			v = *val
-		}
-		ups = append(ups, firestore.Update{FieldPath: firestore.FieldPath{"limits", cat}, Value: v})
 	}
 	if len(ups) > 0 {
 		if _, err := ref.Update(ctx, ups); err != nil {

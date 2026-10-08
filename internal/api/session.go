@@ -4,7 +4,6 @@ import (
 	"net/http"
 	"time"
 
-	"expense-bot/internal/category"
 	"expense-bot/internal/ledger"
 )
 
@@ -17,18 +16,13 @@ type sessionUser struct {
 	IsNew        bool      `json:"isNew"`
 }
 
-type categoryDTO struct {
-	Name  string `json:"name"`
-	Label string `json:"label"`
-	Limit int64  `json:"limit"`
-}
-
 type sessionResponse struct {
-	User         sessionUser   `json:"user"`
-	Salary       int64         `json:"salary"`
-	Categories   []categoryDTO `json:"categories"`
-	CurrentMonth string        `json:"currentMonth"`
-	FirstMonth   *string       `json:"firstMonth"`
+	User              sessionUser   `json:"user"`
+	Salary            int64         `json:"salary"`
+	Categories        []categoryDTO `json:"categories"`
+	CategoriesVersion int64         `json:"categoriesVersion"`
+	CurrentMonth      string        `json:"currentMonth"`
+	FirstMonth        *string       `json:"firstMonth"`
 }
 
 // handleSession registers the user on launch (FR-002) and returns bootstrap data.
@@ -57,8 +51,7 @@ func (s *Server) handleSession(w http.ResponseWriter, r *http.Request) {
 	if first != "" {
 		resp.FirstMonth = &first
 	}
-	for _, c := range category.All() {
-		resp.Categories = append(resp.Categories, categoryDTO{Name: c.Name, Label: c.Label, Limit: eff.Limits[c.Name]})
-	}
+	l := listDTO(u.CategoryList(), u.CategoriesVersion)
+	resp.Categories, resp.CategoriesVersion = l.Items, l.Version
 	writeJSON(w, http.StatusOK, resp)
 }

@@ -20,6 +20,7 @@ const Advisor = lazy(() => import('./screens/Advisor').then((m) => ({ default: m
 const History = lazy(() => import('./screens/History').then((m) => ({ default: m.History })))
 const EditTransaction = lazy(() => import('./screens/EditTransaction').then((m) => ({ default: m.EditTransaction })))
 const Profile = lazy(() => import('./screens/Profile').then((m) => ({ default: m.Profile })))
+const Categories = lazy(() => import('./screens/Categories').then((m) => ({ default: m.Categories })))
 
 // In dev (vite) the Go server authenticates via DEV_USER_ID, so a plain browser is allowed.
 const allowOutside = import.meta.env.DEV
@@ -108,6 +109,12 @@ function ScreenView({ screen }: { screen: Screen }) {
       return (
         <Suspense fallback={<Loader />}>
           <Profile />
+        </Suspense>
+      )
+    case 'categories':
+      return (
+        <Suspense fallback={<Loader />}>
+          <Categories />
         </Suspense>
       )
   }

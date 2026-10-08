@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"expense-bot/internal/category"
+	"expense-bot/internal/catalog"
 	"expense-bot/internal/ledger"
 	"expense-bot/internal/store"
 )
@@ -100,7 +100,7 @@ func (a *Advisor) Generate(ctx context.Context, userID int64) (string, error) {
 		return "", fmt.Errorf("goals: %w", err)
 	}
 	eff := ledger.NewEffective(u.FirstName, a.salary, u.Overrides())
-	advice, err := a.callGemini(ctx, buildPrompt(monthKey, eff, month, u.SavingsBalance, goals))
+	advice, err := a.callGemini(ctx, buildPrompt(monthKey, eff, u.CategoryList(), month, u.SavingsBalance, goals))
 	if err != nil {
 		return "", fmt.Errorf("gemini: %w", err)
 	}
@@ -110,23 +110,26 @@ func (a *Advisor) Generate(ctx context.Context, userID int64) (string, error) {
 // somoni converts diram to somoni for prompt text.
 func somoni(d int64) float64 { return float64(d) / ledger.PerSomoni }
 
-func buildPrompt(monthKey string, eff ledger.Effective, m ledger.Month, savings int64, goals []store.Goal) string {
+func buildPrompt(monthKey string, eff ledger.Effective, cats catalog.List, m ledger.Month, savings int64, goals []store.Goal) string {
 	var sb strings.Builder
 
 	sb.WriteString("Ты финансовый советник. Проанализируй финансовое положение и дай конкретные советы на русском языке.\n\n")
 	fmt.Fprintf(&sb, "ПЕРИОД: %s | ЗАРПЛАТА: %.0f с.\n\n", monthKey, somoni(eff.Salary))
 
 	sb.WriteString("РАСХОДЫ ПО КАТЕГОРИЯМ:\n")
-	for _, cat := range category.All() {
-		spent := somoni(m.ByCategory[cat.Name])
-		limit := somoni(eff.Limits[cat.Name])
+	for _, cat := range cats.Sorted() {
+		spent := somoni(m.ByCategory[cat.ID])
+		if cat.Hidden && spent == 0 {
+			continue // hidden and unused this month: not worth mentioning
+		}
+		limit := somoni(cat.Limit)
 		if limit == 0 {
 			if spent > 0 {
-				fmt.Fprintf(&sb, "- %s: %.0f с. (без лимита)\n", cat.Label, spent)
+				fmt.Fprintf(&sb, "- %s: %.0f с. (без лимита)\n", cat.Name, spent)
 			}
 			continue
 		}
-		fmt.Fprintf(&sb, "- %s: %.0f с. / %.0f с. лимит (%.0f%%)\n", cat.Label, spent, limit, spent/limit*100)
+		fmt.Fprintf(&sb, "- %s: %.0f с. / %.0f с. лимит (%.0f%%)\n", cat.Name, spent, limit, spent/limit*100)
 	}
 	fmt.Fprintf(&sb, "\nИТОГО РАСХОДЫ: %.0f с. | ДОХОДЫ: %.0f с.\n", somoni(m.Expense), somoni(m.Income))
 	if m.CreditCharged != 0 || m.CreditRepaid != 0 {

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"time"
 
+	"expense-bot/internal/catalog"
 	"expense-bot/internal/ledger"
 )
 
@@ -26,7 +27,13 @@ type LimitError struct {
 	Balance   int64     // the would-be balance at At (negative)
 }
 
-// ConflictError reports a stale version; Current holds the fresh Transaction or Goal.
+// CategoryState is the user's category list with its version (ConflictError.Current for lists).
+type CategoryState struct {
+	List    catalog.List
+	Version int64
+}
+
+// ConflictError reports a stale version; Current holds the fresh Transaction, Goal or CategoryState.
 type ConflictError struct {
 	Current any
 }
@@ -46,15 +53,26 @@ type User struct {
 	SavingsBalance int64     `firestore:"savingsBalance"`
 	CreditDebt     int64     `firestore:"creditDebt"`
 
-	DisplayName      *string          `firestore:"displayName,omitempty"`
-	Salary           *int64           `firestore:"salary,omitempty"`
-	Limits           map[string]int64 `firestore:"limits,omitempty"`
-	ProfileUpdatedAt *time.Time       `firestore:"profileUpdatedAt,omitempty"`
+	DisplayName      *string    `firestore:"displayName,omitempty"`
+	Salary           *int64     `firestore:"salary,omitempty"`
+	ProfileUpdatedAt *time.Time `firestore:"profileUpdatedAt,omitempty"`
+
+	// Categories is the user's own category list (feature 006); empty before the conversion.
+	Categories        catalog.List `firestore:"categories,omitempty"`
+	CategoriesVersion int64        `firestore:"categoriesVersion"`
 }
 
 // Overrides returns the user's profile overrides for ledger.NewEffective.
 func (u User) Overrides() ledger.ProfileOverrides {
-	return ledger.ProfileOverrides{DisplayName: u.DisplayName, Salary: u.Salary, Limits: u.Limits}
+	return ledger.ProfileOverrides{DisplayName: u.DisplayName, Salary: u.Salary}
+}
+
+// CategoryList returns the user's categories, or the defaults when none are stored yet.
+func (u User) CategoryList() catalog.List {
+	if len(u.Categories) == 0 {
+		return catalog.Defaults(u.RegisteredAt)
+	}
+	return u.Categories
 }
 
 // Transaction is one ledger entry. Amount is always positive (diram); Kind never changes.
@@ -133,7 +151,6 @@ type GoalPatch struct {
 type ProfilePatch struct {
 	DisplayName OptString
 	Salary      OptInt
-	Limits      map[string]*int64 // nil value → reset that category
 }
 
 type OptString struct {
@@ -182,6 +199,11 @@ type Store interface {
 	DeleteGoal(ctx context.Context, userID int64, id string, version int64) error
 
 	UpdateProfile(ctx context.Context, userID int64, p ProfilePatch) (User, error)
+
+	// UpdateCategories is a transactional read-modify-write of the user's category list.
+	// version 0 skips the version check; a stale version → *ConflictError{Current: list};
+	// errors from fn are returned unchanged. Returns the new list and categoriesVersion.
+	UpdateCategories(ctx context.Context, userID int64, version int64, fn func(catalog.List) error) (catalog.List, int64, error)
 
 	ListUserIDs(ctx context.Context) ([]int64, error)
 	Close() error

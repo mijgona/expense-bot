@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react'
-import { useNav, useSession } from '../context'
+import { useNav } from '../context'
+import { useCategories } from '../lib/categories'
 import { ApiError, deleteTransaction, newClientId, patchTransaction } from '../lib/api'
 import { diramToInput, formatSomoni, parseAmountInput } from '../lib/money'
 import { formatDate, toDateInput, todayDushanbe } from '../lib/months'
@@ -28,7 +29,7 @@ function valuesOf(tx: Transaction): FormValues {
 
 export function EditTransaction({ tx: initial }: { tx: Transaction }) {
   const nav = useNav()
-  const { categories } = useSession()
+  const { byId, labelOf } = useCategories()
   const today = todayDushanbe()
 
   // `base` is the server's version of the record the form is editing (replaced on 409).
@@ -46,9 +47,14 @@ export function EditTransaction({ tx: initial }: { tx: Transaction }) {
   const parsed = parseAmountInput(form.amount)
   const amountError = !parsed.ok ? parsed.error : null
   const dateError = form.date > today ? 'Дата не может быть в будущем' : !form.date ? 'Укажите дату' : null
-  const categoryValid = !needsCategory || (form.category !== null && categories.some((c) => c.name === form.category))
-  // A record with a legacy category stays valid as long as the category is not changed.
+  const selectedCat = byId(form.category)
+  const categoryValid = !needsCategory || (selectedCat !== undefined && !selectedCat.hidden)
+  // A record in a hidden (or unknown) category stays valid as long as the category is not changed (FR-013).
   const categoryOk = categoryValid || form.category === orig.category
+  const origCat = byId(orig.category)
+  const origHidden = needsCategory && orig.category != null && (!origCat || origCat.hidden)
+  // For a record in a hidden category the picker opens only on «Изменить».
+  const [pickCategory, setPickCategory] = useState(false)
 
   const changed =
     (parsed.ok && parsed.diram !== base.amount) ||
@@ -139,7 +145,7 @@ export function EditTransaction({ tx: initial }: { tx: Transaction }) {
           <div>⚠️ Запись изменили на другом устройстве. Показаны актуальные значения — проверьте и сохраните ещё раз.</div>
           {mine && (
             <div className="hint">
-              Ваш вариант: {mine.amount} с.{mine.category ? ` · ${mine.category}` : ''}
+              Ваш вариант: {mine.amount} с.{mine.category ? ` · ${labelOf(mine.category)}` : ''}
               {mine.note ? ` · ${mine.note}` : ''} · {mine.date.split('-').reverse().join('.')}
             </div>
           )}
@@ -180,10 +186,18 @@ export function EditTransaction({ tx: initial }: { tx: Transaction }) {
 
       {needsCategory && (
         <div className="card">
-          {!categoryValid && form.category === orig.category && (
-            <div className="hint">Старая категория «{orig.category}». Можно оставить или выбрать текущую.</div>
+          {origHidden && !pickCategory ? (
+            <div className="row">
+              <span>
+                Категория: {labelOf(orig.category)} <span className="tag">скрыта</span>
+              </span>
+              <button type="button" className="btn-link" onClick={() => setPickCategory(true)}>
+                Изменить
+              </button>
+            </div>
+          ) : (
+            <CategoryGrid selected={form.category} onSelect={(c) => update({ category: c })} />
           )}
-          <CategoryGrid selected={form.category} onSelect={(c) => update({ category: c })} />
           {field === 'category' && <div className="error-text">{apiErr!.message}</div>}
         </div>
       )}

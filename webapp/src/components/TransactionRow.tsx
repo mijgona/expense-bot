@@ -1,4 +1,4 @@
-import { useSession } from '../context'
+import { useCategories } from '../lib/categories'
 import { formatSomoni } from '../lib/money'
 import { formatDate, formatDateTime } from '../lib/months'
 import type { Kind, Transaction } from '../lib/types'
@@ -35,10 +35,8 @@ export function signed(t: Pick<Transaction, 'kind' | 'amount'>): string {
 }
 
 export function TransactionRow({ tx, onClick }: { tx: Transaction; onClick?: () => void }) {
-  const { categories } = useSession()
-  const label = tx.category
-    ? (categories.find((c) => c.name === tx.category)?.label ?? tx.category)
-    : KIND_LABEL[tx.kind]
+  const { labelOf } = useCategories()
+  const label = tx.category ? labelOf(tx.category) : KIND_LABEL[tx.kind]
   return (
     <div
       className={'tx' + (onClick ? ' clickable' : '')}
