@@ -223,8 +223,8 @@ export type PayoutStatus = 'upcoming' | 'due' | 'recorded' | 'dismissed'
 export interface Payout {
   month: string
   kind: PayoutKind
-  /** Expected amount (diram). */
-  amount: number
+  /** Always null: the amount is what the user records as income. */
+  amount: number | null
   /** YYYY-MM-DD */
   payday: string
   note: string

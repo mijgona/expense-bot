@@ -78,7 +78,7 @@ func TestReminderAdvanceOnce(t *testing.T) {
 		t.Fatalf("messages = %d, want 1", len(snd.msgs))
 	}
 	m := snd.msgs[0]
-	if m.chat != 42 || !strings.Contains(m.text, "аванс") || !strings.Contains(m.text, "8 000") || m.url != "https://app.example?payout=2026-10_advance" {
+	if m.chat != 42 || !strings.Contains(m.text, "аванс") || strings.Contains(m.text, "8 000") || m.url != "https://app.example?payout=2026-10_advance" {
 		t.Errorf("message = %+v", m)
 	}
 	r.Tick(context.Background())
@@ -128,7 +128,7 @@ func TestReminderSingleLastDayAndNoURL(t *testing.T) {
 	src, snd, _ := setup("", at(2026, 10, 31, 10))
 	r := NewReminder(src, snd, func() time.Time { return at(2026, 10, 31, 10) }, "", nil, 16000)
 	r.Tick(context.Background())
-	if len(snd.msgs) != 1 || !strings.Contains(snd.msgs[0].text, "Сегодня зарплата: 16 000") || snd.msgs[0].url != "" {
+	if len(snd.msgs) != 1 || !strings.Contains(snd.msgs[0].text, "Сегодня зарплата.") || snd.msgs[0].url != "" {
 		t.Errorf("single last day = %+v", snd.msgs)
 	}
 }

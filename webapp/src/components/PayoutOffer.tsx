@@ -17,14 +17,15 @@ interface Props {
   onChanged(): void
 }
 
-/** Home block for an expected salary payment: «Аванс 8 000 с. — 15 октября» + one-tap confirmation.
+/** Home block for an expected salary payment: «Аванс — 15 октября». Recording opens an income form
+ *  with an empty amount: the advance and salary are whatever actually arrived (no fixed amounts).
  *  Logic as in 007; styled as a design-B block (008 FR-010), rendered inside .ui-b. */
 export function PayoutOffer({ payout, autoOpen = false, onChanged }: Props) {
   const today = todayDushanbe()
   // An upcoming payday can't be used as the record date (no future dates) — default to today then.
   const defaultDate = payout.payday <= today ? payout.payday : today
   const [open, setOpen] = useState(autoOpen)
-  const [amount, setAmount] = useState(diramToInput(payout.amount))
+  const [amount, setAmount] = useState(payout.amount != null ? diramToInput(payout.amount) : '')
   const [date, setDate] = useState(defaultDate)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<unknown>(null)
@@ -82,9 +83,6 @@ export function PayoutOffer({ payout, autoOpen = false, onChanged }: Props) {
         <span className="b-block-text">
           <span className="b-payout-title">{payoutTitle(payout.kind)}</span>
           <span className="b-payout-sub">{formatPayday(payout.payday)}</span>
-        </span>
-        <span className="b-payout-amount num display" style={{ marginLeft: 'auto' }}>
-          {formatSomoni(payout.amount)}
         </span>
       </div>
 
@@ -158,7 +156,7 @@ export function PayoutRecorded({ payout, onOpenHistory }: RecordedProps) {
         if (alive) setTx(found)
       })
       .catch(() => {
-        /* the expected amount is shown instead */
+        /* the amount is simply not shown */
       })
     return () => {
       alive = false
@@ -177,9 +175,11 @@ export function PayoutRecorded({ payout, onOpenHistory }: RecordedProps) {
             {payoutTitle(payout.kind)} · {tx ? formatDate(tx.occurredAt) : formatPayday(payout.payday)}
           </span>
         </span>
-        <span className="b-payout-amount num display" style={{ marginLeft: 'auto' }}>
-          {formatSomoni(tx ? tx.amount : payout.amount)}
-        </span>
+        {tx && (
+          <span className="b-payout-amount num display" style={{ marginLeft: 'auto' }}>
+            {formatSomoni(tx.amount)}
+          </span>
+        )}
       </div>
       <button className="b-payout-link" onClick={onOpenHistory}>
         Открыть в истории ›

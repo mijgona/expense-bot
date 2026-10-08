@@ -16,7 +16,7 @@ const prevMonthGraceDays = 5
 type payoutDTO struct {
 	Month         string  `json:"month"`
 	Kind          string  `json:"kind"`
-	Amount        int64   `json:"amount"`
+	Amount        *int64  `json:"amount"` // null: amounts come from the income the user records
 	Payday        string  `json:"payday"`
 	Note          string  `json:"note"`
 	Status        string  `json:"status"` // upcoming | due | recorded | dismissed
@@ -25,7 +25,7 @@ type payoutDTO struct {
 
 // payoutStatus resolves one expected payment's status.
 func (s *Server) payoutStatus(r *http.Request, uid int64, month string, p payroll.Payment, states map[string]store.Payout) (payoutDTO, error) {
-	d := payoutDTO{Month: month, Kind: string(p.Kind), Amount: p.Amount, Payday: p.Payday.Format("2006-01-02"), Note: p.Note}
+	d := payoutDTO{Month: month, Kind: string(p.Kind), Payday: p.Payday.Format("2006-01-02"), Note: p.Note}
 	id := payroll.TxID(month, p.Kind)
 	_, err := s.store.GetTransaction(r.Context(), uid, id)
 	switch {

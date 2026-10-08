@@ -2,7 +2,6 @@ package payroll
 
 import (
 	"context"
-	"fmt"
 	"log"
 	"slices"
 	"time"
@@ -59,14 +58,13 @@ func (r *Reminder) Start(ctx context.Context) {
 }
 
 func reminderText(p Payment) string {
-	amount := ledger.FormatSomoni(p.Amount)
 	switch p.Kind {
 	case KindAdvance:
-		return fmt.Sprintf("💵 Сегодня аванс: %s. Записать?", amount)
+		return "💵 Сегодня аванс. Запишите, сколько пришло."
 	case KindRest:
-		return fmt.Sprintf("💵 Сегодня зарплата (остаток): %s. Записать?", amount)
+		return "💵 Сегодня зарплата (остаток). Запишите, сколько пришло."
 	default:
-		return fmt.Sprintf("💵 Сегодня зарплата: %s. Записать?", amount)
+		return "💵 Сегодня зарплата. Запишите, сколько пришло."
 	}
 }
 
