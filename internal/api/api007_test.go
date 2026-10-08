@@ -69,7 +69,7 @@ func TestPayouts(t *testing.T) {
 
 	freeze(t, 2026, 10, 10, 12)
 	_, b := e.do(t, "GET", "/api/payouts", auth, "")
-	if p := payout(b["items"].([]any), "2026-10", "advance"); p["status"] != "upcoming" || num(p["amount"]) != 800000 || p["payday"] != "2026-10-15" {
+	if p := payout(b["items"].([]any), "2026-10", "advance"); p["status"] != "upcoming" || p["amount"] != nil || p["payday"] != "2026-10-15" {
 		t.Errorf("10th advance: %v", p)
 	}
 

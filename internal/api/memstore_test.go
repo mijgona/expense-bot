@@ -16,6 +16,7 @@ import (
 // memStore is an in-memory store.Store with the same ledger semantics as the Firestore
 // implementation (Apply/Revert, CheckRunning, versioning, tombstones). Reference for API tests.
 type memStore struct {
+	sumErr     error                             // injected SumTransactions failure (e.g. missing Firestore index)
 	payouts    map[int64]map[string]store.Payout // key month_kind
 	mu         sync.Mutex
 	users      map[int64]*store.User
@@ -274,6 +275,9 @@ var errInvalidCursor = cursorErr{}
 func (m *memStore) SumTransactions(_ context.Context, uid int64, f store.HistoryFilter) (int64, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.sumErr != nil {
+		return 0, m.sumErr
+	}
 	var sum int64
 	for _, t := range m.matching(uid, f) {
 		sum += t.Amount

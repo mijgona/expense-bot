@@ -63,7 +63,15 @@ export function MainCard({ summary: s, loading, error, onRetry, goals }: Props) 
   return (
     <section className="b-main-card">
       <Rings />
-      <span className="b-main-label">{overspent ? 'Перерасход' : `Остаток на ${monthWord(s.month)}`}</span>
+      <span className="b-main-label">
+        {overspent
+          ? 'Перерасход'
+          : np
+            ? np.kind === 'advance'
+              ? 'Остаток до аванса'
+              : 'Остаток до зарплаты'
+            : `Остаток на ${monthWord(s.month)}`}
+      </span>
       <div className="b-balance num display">
         <span className={'b-balance-value' + size}>{amount}</span>
         <span className="b-balance-cur">с.</span>
