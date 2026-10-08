@@ -131,7 +131,7 @@ func (s *Server) handleSummary(w http.ResponseWriter, r *http.Request) {
 // month's records to find the current pay period's start balance, income and expenses.
 func (s *Server) pace(ctx context.Context, userID int64, month string, split bool, now time.Time, carry int64, m ledger.Month) (*ledger.PaceInfo, error) {
 	if !split {
-		return ledger.Pace(false, now, carry, m.Income, m.Expense, nil), nil
+		return ledger.Pace(false, now, carry, m.CashNet, m.Expense, nil), nil
 	}
 	var txs []ledger.PaceTx
 	f := store.HistoryFilter{Month: month, Limit: 100}
@@ -148,5 +148,5 @@ func (s *Server) pace(ctx context.Context, userID int64, month string, split boo
 		}
 		f.Cursor = next
 	}
-	return ledger.Pace(true, now, carry, m.Income, m.Expense, txs), nil
+	return ledger.Pace(true, now, carry, m.CashNet, m.Expense, txs), nil
 }

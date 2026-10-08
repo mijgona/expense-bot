@@ -11,7 +11,7 @@ func dt(m, d, hh int) time.Time { return time.Date(2026, time.Month(m), d, hh, 0
 func near(a, b float64) bool { return math.Abs(a-b) < 1e-9 }
 
 func TestPaceSingle(t *testing.T) {
-	p := Pace(false, dt(10, 8, 12), 1778590, 100, 1013000, nil)
+	p := Pace(false, dt(10, 8, 12), 1778590, 100-1013000, 1013000, nil)
 	if p == nil || p.Spent != 1013000 || p.Budget != 1778690 || !near(p.Elapsed, 8.0/31) || p.Period != "month" {
 		t.Fatalf("single = %+v", p)
 	}
@@ -21,7 +21,7 @@ func TestPaceSingle(t *testing.T) {
 	if pct := math.Round(p.Elapsed * 100); pct != 26 {
 		t.Errorf("elapsed %% = %v, want 26", pct)
 	}
-	if p := Pace(false, dt(10, 8, 12), 0, 0, 5000, nil); p != nil {
+	if p := Pace(false, dt(10, 8, 12), 0, -5000, 5000, nil); p != nil {
 		t.Errorf("budget ≤ 0 → %+v, want nil", p)
 	}
 }
@@ -30,13 +30,13 @@ func TestPaceSplitAdvancePeriod(t *testing.T) {
 	txs := []PaceTx{
 		{At: dt(10, 3, 9), Kind: KindExpense, Amount: 100000},
 		{At: dt(10, 9, 9), Kind: KindExpense, Amount: 200000},
-		{At: dt(10, 9, 10), Kind: KindSavingsDeposit, Amount: 50000}, // not spending
+		{At: dt(10, 9, 10), Kind: KindSavingsDeposit, Amount: 50000}, // not spending, but not available either
 	}
 	p := Pace(true, dt(10, 10, 12), 600000, 0, 300000, txs)
-	if p == nil || p.Spent != 300000 || p.Budget != 600000 || !near(p.Elapsed, 10.0/14) || p.Period != "advance" {
+	if p == nil || p.Spent != 300000 || p.Budget != 550000 || !near(p.Elapsed, 10.0/14) || p.Period != "advance" {
 		t.Fatalf("advance period = %+v", p)
 	}
-	if math.Round(p.Elapsed*100) != 71 || math.Round(float64(p.Spent)/float64(p.Budget)*100) != 50 {
+	if math.Round(p.Elapsed*100) != 71 || math.Round(float64(p.Spent)/float64(p.Budget)*100) != 55 {
 		t.Errorf("percentages = %v / %v", p.Elapsed, float64(p.Spent)/float64(p.Budget))
 	}
 }
@@ -52,6 +52,34 @@ func TestPaceSplitRestPeriod(t *testing.T) {
 	// start balance = 50 000 + (1 000 000 − 200 000); + income in period 500 000
 	if p == nil || p.Budget != 1350000 || p.Spent != 100000 || !near(p.Elapsed, 6.0/17) || p.Period != "rest" {
 		t.Fatalf("rest period = %+v", p)
+	}
+}
+
+// Budget − Spent must equal the summary's remaining (carryOver + cashNet), whatever kinds the
+// month holds: savings and card repayments reduce the budget, card purchases don't touch cash.
+func TestPaceMatchesRemaining(t *testing.T) {
+	txs := []PaceTx{
+		{At: dt(10, 2, 9), Kind: KindIncome, Amount: 800000},
+		{At: dt(10, 3, 9), Kind: KindCreditRepayment, Amount: 120000},
+		{At: dt(10, 4, 9), Kind: KindExpense, Amount: 90000},
+		{At: dt(10, 16, 9), Kind: KindIncome, Amount: 700000},
+		{At: dt(10, 17, 9), Kind: KindSavingsDeposit, Amount: 100000},
+		{At: dt(10, 17, 10), Kind: KindSavingsWithdrawal, Amount: 30000},
+		{At: dt(10, 18, 9), Kind: KindCreditPurchase, Amount: 400000},
+		{At: dt(10, 18, 10), Kind: KindCreditRepayment, Amount: 50000},
+		{At: dt(10, 19, 9), Kind: KindExpense, Amount: 60000},
+	}
+	const carry = 25000
+	var m Month
+	for _, tx := range txs {
+		m.Add(Apply(tx.Kind, "c_x", tx.Amount).Month)
+	}
+	remaining := carry + m.CashNet
+	for _, split := range []bool{false, true} {
+		p := Pace(split, dt(10, 20, 12), carry, m.CashNet, m.Expense, txs)
+		if p == nil || p.Budget-p.Spent != remaining {
+			t.Errorf("split=%v: %+v, budget−spent ≠ remaining %d", split, p, remaining)
+		}
 	}
 }
 

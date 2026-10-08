@@ -1,9 +1,4 @@
-import { formatSomoni } from '../../lib/money'
-
-/** Amount without the currency suffix: 765690 → "7 656,90" (the card shows "с." separately). */
-export function formatAmount(diram: number): string {
-  return formatSomoni(diram).replace(/ с\.$/, '')
-}
+export { formatAmount } from '../../lib/money'
 
 /** Russian plural: plural(5, ['день','дня','дней']) → "дней". */
 export function plural(n: number, forms: [string, string, string]): string {

@@ -26,15 +26,20 @@ function groupThousands(n: number): string {
   return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ' ')
 }
 
-/** 123400 → "1 234 с.", 123450 → "1 234,50 с.", -50000 → "−500 с." */
-export function formatSomoni(diram: number): string {
+/** Amount without the currency suffix: 765690 → "7 656,90", -50000 → "−500". */
+export function formatAmount(diram: number): string {
   const neg = diram < 0
   const abs = Math.abs(Math.trunc(diram))
   const whole = Math.floor(abs / 100)
   const frac = abs % 100
   let out = groupThousands(whole)
   if (frac !== 0) out += ',' + String(frac).padStart(2, '0')
-  return (neg ? '−' : '') + out + ' с.'
+  return (neg ? '−' : '') + out
+}
+
+/** 123400 → "1 234 с.", 123450 → "1 234,50 с.", -50000 → "−500 с." */
+export function formatSomoni(diram: number): string {
+  return formatAmount(diram) + '\u00a0с.'
 }
 
 /** Diram → plain editable string ("1234.5" style with comma), used to prefill inputs. */

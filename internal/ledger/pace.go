@@ -30,17 +30,19 @@ func dayStart(t time.Time) time.Time {
 
 func daysBetween(a, b time.Time) int { return int(dayStart(b).Sub(dayStart(a)).Hours()/24 + 0.5) }
 
-// Pace computes spent vs available money for the current budget period. With one payment the
-// period is the month (budget = carryOver + income). With two payments it is the 1st–14th or the
-// 15th–last day: budget = carryOver + the cashNet of records before the period + income inside
-// it. Returns nil when the budget is not positive.
-func Pace(split bool, now time.Time, carryOver, monthIncome, monthExpense int64, monthTxs []PaceTx) *PaceInfo {
+// Pace computes spent vs available money for the current budget period. Spent is expenses only;
+// everything else that moves cash (savings, card repayments) changes the budget instead, so
+// Budget − Spent always equals the summary's remaining. With one payment the period is the month
+// (budget = carryOver + monthCashNet + monthExpense). With two payments it is the 1st–14th or the
+// 15th–last day: budget = carryOver + the cashNet of records before the period + the non-expense
+// cashNet inside it. Returns nil when the budget is not positive.
+func Pace(split bool, now time.Time, carryOver, monthCashNet, monthExpense int64, monthTxs []PaceTx) *PaceInfo {
 	today := dayStart(now)
 	first := time.Date(today.Year(), today.Month(), 1, 0, 0, 0, 0, Location)
 	last := first.AddDate(0, 1, -1)
 
 	if !split {
-		p := &PaceInfo{Spent: monthExpense, Budget: carryOver + monthIncome, Period: "month",
+		p := &PaceInfo{Spent: monthExpense, Budget: carryOver + monthCashNet + monthExpense, Period: "month",
 			Elapsed: float64(today.Day()) / float64(last.Day())}
 		if p.Budget <= 0 {
 			return nil
@@ -55,17 +57,13 @@ func Pace(split bool, now time.Time, carryOver, monthIncome, monthExpense int64,
 	p := &PaceInfo{Period: period, Budget: carryOver,
 		Elapsed: float64(daysBetween(start, today)+1) / float64(daysBetween(start, end)+1)}
 	for _, t := range monthTxs {
-		d := dayStart(t.At)
 		switch {
-		case d.Before(start):
+		case dayStart(t.At).Before(start):
 			p.Budget += Apply(t.Kind, "", t.Amount).Month.CashNet
-		case !d.After(today):
-			if t.Kind == KindIncome {
-				p.Budget += t.Amount
-			}
-			if t.Kind == KindExpense {
-				p.Spent += t.Amount
-			}
+		case t.Kind == KindExpense:
+			p.Spent += t.Amount
+		default:
+			p.Budget += Apply(t.Kind, "", t.Amount).Month.CashNet
 		}
 	}
 	if p.Budget <= 0 {
