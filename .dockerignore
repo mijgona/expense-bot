@@ -1,0 +1,12 @@
+.git/
+.idea/
+.claude/
+.specify/
+specs/
+webapp/
+config.json
+credentials.json
+*.log
+.env*
+Dockerfile*
+.dockerignore

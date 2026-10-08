@@ -15,12 +15,20 @@ type Config struct {
 	Salary         int     `json:"salary"`
 	AllowedUserIDs []int64 `json:"allowed_user_ids"`
 	GeminiAPIKey   string  `json:"gemini_api_key"`
+
+	// WebAppURL is the Mini App URL (Render static site). Empty → bot replies without the app button.
+	WebAppURL string `json:"webapp_url"`
+	// FirestoreProjectID overrides project_id from the service-account credentials.
+	FirestoreProjectID string `json:"firestore_project_id"`
+	// DevUserID skips initData verification and acts as this user. Local development only.
+	DevUserID int64 `json:"dev_user_id"`
 }
 
 // Load reads config from a JSON file.
 // Environment variables always override file values:
 //
-//	BOT_TOKEN, SPREADSHEET_ID, SALARY
+//	BOT_TOKEN, SPREADSHEET_ID, SALARY, GEMINI_API_KEY, ALLOWED_USER_IDS,
+//	WEBAPP_URL, FIRESTORE_PROJECT_ID, DEV_USER_ID
 func Load(path string) (*Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -38,8 +46,9 @@ func Load(path string) (*Config, error) {
 }
 
 // LoadFromEnv builds Config entirely from environment variables.
-// Required: BOT_TOKEN, SPREADSHEET_ID.
-// Optional: SALARY (default 16000).
+// Required: BOT_TOKEN.
+// Optional: SALARY (default 16000), SPREADSHEET_ID (migration only), WEBAPP_URL,
+// FIRESTORE_PROJECT_ID, GEMINI_API_KEY, ALLOWED_USER_IDS, DEV_USER_ID (refused on Render).
 func LoadFromEnv() (*Config, error) {
 	cfg := &Config{Salary: 16000}
 	cfg.applyEnvOverrides()
@@ -62,6 +71,17 @@ func (c *Config) applyEnvOverrides() {
 	if v := os.Getenv("GEMINI_API_KEY"); v != "" {
 		c.GeminiAPIKey = v
 	}
+	if v := os.Getenv("WEBAPP_URL"); v != "" {
+		c.WebAppURL = strings.TrimRight(v, "/")
+	}
+	if v := os.Getenv("FIRESTORE_PROJECT_ID"); v != "" {
+		c.FirestoreProjectID = v
+	}
+	if v := os.Getenv("DEV_USER_ID"); v != "" {
+		if id, err := strconv.ParseInt(v, 10, 64); err == nil {
+			c.DevUserID = id
+		}
+	}
 	if v := os.Getenv("ALLOWED_USER_IDS"); v != "" {
 		c.AllowedUserIDs = nil
 		for _, s := range strings.Split(v, ",") {
@@ -77,11 +97,12 @@ func (c *Config) validate() error {
 	if c.BotToken == "" {
 		return fmt.Errorf("BOT_TOKEN / bot_token is required")
 	}
-	if c.SpreadsheetID == "" {
-		return fmt.Errorf("SPREADSHEET_ID / spreadsheet_id is required")
-	}
 	if c.Salary <= 0 {
 		return fmt.Errorf("SALARY / salary must be > 0")
 	}
+	if c.DevUserID != 0 && os.Getenv("RENDER") != "" {
+		return fmt.Errorf("DEV_USER_ID must not be set on Render: it disables initData verification")
+	}
+	c.WebAppURL = strings.TrimRight(c.WebAppURL, "/")
 	return nil
 }

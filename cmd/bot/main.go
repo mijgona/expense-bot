@@ -1,47 +1,58 @@
 package main
 
 import (
+	"context"
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"expense-bot/internal/advisor"
-	"expense-bot/internal/bot"
+	"expense-bot/internal/api"
 	"expense-bot/internal/config"
-	"expense-bot/internal/sheets"
+	"expense-bot/internal/store/firestore"
+	"expense-bot/internal/telegram"
 )
 
 func main() {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
 	cfg := loadConfig()
-	sheetsClient := loadSheets(cfg.SpreadsheetID)
+	st := loadStore(ctx, cfg)
+	defer st.Close()
 
-	application, err := bot.New(cfg, sheetsClient)
-	if err != nil {
-		log.Fatalf("bot init: %v", err)
-	}
-
-	// Render web services require an HTTP listener on $PORT.
-	go func() {
-		port := envOr("PORT", "8080")
-		http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(`{"status":"ok"}`))
+	tg := telegram.NewClient(cfg.BotToken)
+	adv := advisor.New(st, cfg.GeminiAPIKey, cfg.Salary,
+		func(ctx context.Context, userID int64, filename string, md []byte) error {
+			return tg.SendDocument(ctx, userID, filename, md, "🤖 Финансовый отчёт", cfg.WebAppURL)
 		})
-		log.Printf("health: listening on :%s", port)
-		if err := http.ListenAndServe(":"+port, nil); err != nil {
-			log.Fatalf("health server: %v", err)
+
+	// Render web services require an HTTP listener on $PORT: /health + the Mini App API.
+	port := envOr("PORT", "8080")
+	srv := &http.Server{
+		Addr:              ":" + port,
+		Handler:           api.New(st, cfg, adv).Handler(),
+		ReadHeaderTimeout: 10 * time.Second,
+	}
+	go func() {
+		log.Printf("api: listening on :%s", port)
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("api server: %v", err)
 		}
 	}()
 
 	go selfPing()
+	go adv.Start(ctx)
+	go telegram.NewBot(tg, st, cfg).Start(ctx)
 
-	adv := advisor.New(application.API(), sheetsClient, cfg.GeminiAPIKey, cfg.Salary)
-	application.SetAdvisor(adv)
-	go adv.Start()
-
-	application.Run()
+	<-ctx.Done()
+	log.Println("shutting down")
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	_ = srv.Shutdown(shutdownCtx)
 }
 
 // loadConfig prefers environment variables (Render / Docker),
@@ -65,28 +76,28 @@ func loadConfig() *config.Config {
 	return cfg
 }
 
-// loadSheets prefers GOOGLE_CREDENTIALS_JSON env var (Render / Docker),
+// loadStore prefers GOOGLE_CREDENTIALS_JSON env var (Render / Docker),
 // and falls back to credentials.json for local development.
-func loadSheets(spreadsheetID string) *sheets.Client {
-	if raw := os.Getenv("GOOGLE_CREDENTIALS_JSON"); raw != "" {
-		log.Println("sheets: loading credentials from GOOGLE_CREDENTIALS_JSON")
-		client, err := sheets.NewFromJSON([]byte(raw), spreadsheetID)
-		if err != nil {
-			log.Fatalf("sheets (env): %v", err)
+func loadStore(ctx context.Context, cfg *config.Config) *firestore.Store {
+	creds := []byte(os.Getenv("GOOGLE_CREDENTIALS_JSON"))
+	if len(creds) > 0 {
+		log.Println("store: loading credentials from GOOGLE_CREDENTIALS_JSON")
+	} else {
+		path := envOr("CREDENTIALS_PATH", "credentials.json")
+		log.Printf("store: loading credentials from file %q", path)
+		var err error
+		if creds, err = os.ReadFile(path); err != nil {
+			log.Fatalf("store: read credentials: %v", err)
 		}
-		return client
 	}
-
-	path := envOr("CREDENTIALS_PATH", "credentials.json")
-	log.Printf("sheets: loading credentials from file %q", path)
-	client, err := sheets.New(path, spreadsheetID)
+	st, err := firestore.New(ctx, creds, cfg.FirestoreProjectID)
 	if err != nil {
-		log.Fatalf("sheets (file): %v", err)
+		log.Fatalf("store: %v", err)
 	}
-	return client
+	return st
 }
 
-// selfPing keeps the Render free-tier service awake by pinging /health every 10 minutes.
+// selfPing keeps the Render free-tier service awake by pinging /health every 45 seconds.
 // It uses RENDER_EXTERNAL_URL which Render sets automatically.
 func selfPing() {
 	url := os.Getenv("RENDER_EXTERNAL_URL")
@@ -101,7 +112,6 @@ func selfPing() {
 			continue
 		}
 		resp.Body.Close()
-		log.Printf("self-ping: %s %s", resp.Status, url)
 	}
 }
 

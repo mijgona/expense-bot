@@ -11,3 +11,10 @@ specs/
 .claude/
 CLAUDE.md
 config.yaml
+
+# webapp
+webapp/node_modules/
+webapp/dist/
+webapp/.env*
+*.log
+webapp/*.tsbuildinfo
