@@ -1,23 +1,34 @@
 import { useState } from 'react'
 import { useNav, useSession } from '../context'
-import { getSummary, listPayouts } from '../lib/api'
-import { formatSomoni } from '../lib/money'
+import { getSummary, listGoals, listPayouts } from '../lib/api'
 import { takePayoutLink } from '../lib/payouts'
+import { useTelegramScheme } from '../lib/scheme'
 import type { Payout } from '../lib/types'
 import { useAsync } from '../hooks'
-import { Loader } from '../components/Loader'
-import { ErrorBanner } from '../components/ErrorBanner'
 import { PayoutOffer, PayoutRecorded } from '../components/PayoutOffer'
+import { Header } from '../components/home/Header'
+import { MainCard } from '../components/home/MainCard'
+import { GoalsRow } from '../components/home/GoalsRow'
+import { QuickActions } from '../components/home/QuickActions'
+import { LimitsCard } from '../components/home/LimitsCard'
+import { DebtBlock, SavingsBlock } from '../components/home/Blocks'
+import '../styles-home.css'
 
 const samePayout = (a: Payout, month: string, kind: string) => a.month === month && a.kind === kind
 
+/** Home screen, design B «Карточки» (feature 008). Shows only figures the app already calculates. */
 export function Home() {
   const session = useSession()
   const nav = useNav()
-  // Home is re-mounted whenever it becomes the top screen again, so this refetches after every write.
-  const { data: s, error, loading, reload } = useAsync(() => getSummary(), [])
+  const scheme = useTelegramScheme()
+
+  // Loaded in parallel with independent states; Home remounts when it becomes the top screen again,
+  // so figures refresh after every write elsewhere (FR-019).
+  const summary = useAsync(() => getSummary(), [])
   const payouts = useAsync(() => listPayouts(), [])
-  // Reminder deep link (?payout=YYYY-MM_kind), handed over once per app launch.
+  const goals = useAsync(() => listGoals(), [])
+
+  // Reminder deep link (?payout=YYYY-MM_kind), handed over once per app launch (007, FR-010).
   const [link, setLink] = useState(() => takePayoutLink())
   // The link may point at a month that /api/payouts (current month) doesn't cover.
   const linked = useAsync(
@@ -36,117 +47,49 @@ export function Home() {
 
   function afterPayout() {
     setLink(null)
-    reload()
+    summary.reload()
     payouts.reload()
   }
 
-  const np = s?.nextPayday ?? null
+  const s = summary.data
 
   return (
-    <div className="screen">
-      <div className="screen-title">👋 Привет, {session.user.displayName || session.user.firstName}!</div>
-      <div className="hint">💼 Зарплата: {formatSomoni(session.salary)}</div>
+    <div className="ui-b b-page" data-scheme={scheme}>
+      <main className="b-main">
+        <Header />
 
-      {linkItem &&
-        (linkItem.status === 'recorded' ? (
-          <PayoutRecorded
-            payout={linkItem}
-            onOpenHistory={() => nav.push({ name: 'history', filter: { month: linkItem.month, group: 'income' } })}
-          />
-        ) : (
-          <PayoutOffer key={`link-${linkItem.month}-${linkItem.kind}`} payout={linkItem} autoOpen onChanged={afterPayout} />
-        ))}
-      {due.map((p) => (
-        <PayoutOffer key={`${p.month}-${p.kind}`} payout={p} onChanged={afterPayout} />
-      ))}
-
-      {loading && !s && <Loader text="Считаю баланс…" />}
-      {error != null && <ErrorBanner error={error} onRetry={reload} />}
-      {s && (
-        <div className="card">
-          <div className="hint">💚 Остаток</div>
-          <div className={'big-number' + (s.remaining < 0 ? ' negative' : '')}>{formatSomoni(s.remaining)}</div>
-          {s.carryOver !== 0 && (
-            <div className="row">
-              <span>🔄 Перенос</span>
-              <span>{formatSomoni(s.carryOver)}</span>
-            </div>
-          )}
-          <div className="row">
-            <span>💵 Приход</span>
-            <span>{formatSomoni(s.income)}</span>
-          </div>
-          <div className="row">
-            <span>💸 Расход</span>
-            <span>{formatSomoni(s.expense)}</span>
-          </div>
-          {np ? (
-            <div className="row">
-              <span>
-                📅 {np.kind === 'advance' ? 'До аванса' : 'До зарплаты'} {np.daysLeft} дн.
-              </span>
-              <span>{s.dailyBudget != null ? `на день ${formatSomoni(s.dailyBudget)}` : ''}</span>
-            </div>
+        {linkItem &&
+          (linkItem.status === 'recorded' ? (
+            <PayoutRecorded
+              payout={linkItem}
+              onOpenHistory={() => nav.push({ name: 'history', filter: { month: linkItem.month, group: 'income' } })}
+            />
           ) : (
-            <>
-              {s.daysLeft != null && (
-                <div className="row">
-                  <span>📅 Осталось дней</span>
-                  <span>{s.daysLeft}</span>
-                </div>
-              )}
-              {s.dailyBudget != null && (
-                <div className="row">
-                  <span>📊 На день</span>
-                  <span>{formatSomoni(s.dailyBudget)}</span>
-                </div>
-              )}
-            </>
-          )}
-          {s.savingsBalance > 0 && (
-            <div className="row">
-              <span>💎 Всего накоплено</span>
-              <span>{formatSomoni(s.savingsBalance)}</span>
-            </div>
-          )}
-          {s.creditDebt > 0 && (
-            <div className="row">
-              <span>💳 Долг по карте</span>
-              <span className="negative">−{formatSomoni(s.creditDebt)}</span>
-            </div>
-          )}
-        </div>
-      )}
+            <PayoutOffer key={`link-${linkItem.month}-${linkItem.kind}`} payout={linkItem} autoOpen onChanged={afterPayout} />
+          ))}
+        {due.map((p) => (
+          <PayoutOffer key={`${p.month}-${p.kind}`} payout={p} onChanged={afterPayout} />
+        ))}
 
-      <div className="actions">
-        <button className="action action-primary" onClick={() => nav.push({ name: 'add', kind: 'expense' })}>
-          ➕ Расход
-        </button>
-        <button className="action" onClick={() => nav.push({ name: 'add', kind: 'income' })}>
-          💵 Приход
-        </button>
-        <button className="action" onClick={() => nav.push({ name: 'report', month: session.currentMonth })}>
-          📊 Отчёт
-        </button>
-        <button className="action" onClick={() => nav.push({ name: 'savings' })}>
-          🏦 Накопления
-        </button>
-        <button className="action" onClick={() => nav.push({ name: 'credit' })}>
-          💳 Карта
-        </button>
-        <button className="action" onClick={() => nav.push({ name: 'goals' })}>
-          🎯 Цели
-        </button>
-        <button className="action" onClick={() => nav.push({ name: 'history' })}>
-          📜 История
-        </button>
-        <button className="action" onClick={() => nav.push({ name: 'advisor' })}>
-          🤖 ИИ-отчёт
-        </button>
-        <button className="action" onClick={() => nav.push({ name: 'profile' })}>
-          👤 Профиль
-        </button>
-      </div>
+        <MainCard
+          summary={s}
+          loading={summary.loading}
+          error={summary.error}
+          onRetry={summary.reload}
+          goals={s?.quarter ? <GoalsRow quarter={s.quarter} goals={goals.data?.items ?? null} /> : undefined}
+        />
+
+        <QuickActions />
+
+        {s && <LimitsCard lines={s.categories} />}
+
+        {s && (
+          <div className="b-blocks">
+            <DebtBlock debt={s.creditDebt} />
+            <SavingsBlock balance={s.savingsBalance} />
+          </div>
+        )}
+      </main>
     </div>
   )
 }

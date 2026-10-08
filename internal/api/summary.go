@@ -2,7 +2,9 @@ package api
 
 import (
 	"context"
+	"expense-bot/internal/store"
 	"net/http"
+	"time"
 
 	"expense-bot/internal/ledger"
 	"expense-bot/internal/payroll"
@@ -23,7 +25,15 @@ type summaryResponse struct {
 	DaysLeft       *int                  `json:"daysLeft"`
 	DailyBudget    *int64                `json:"dailyBudget"`
 	NextPayday     *nextPaydayDTO        `json:"nextPayday"`
+	Pace           *ledger.PaceInfo      `json:"pace"`
+	Quarter        *quarterDTO           `json:"quarter"`
 	Categories     []ledger.CategoryLine `json:"categories"`
+}
+
+type quarterDTO struct {
+	Name     string  `json:"name"`
+	Elapsed  float64 `json:"elapsed"`
+	DaysLeft int     `json:"daysLeft"`
 }
 
 type nextPaydayDTO struct {
@@ -64,7 +74,15 @@ func (s *Server) buildSummary(ctx context.Context, userID int64, month string) (
 	}
 	if resp.IsCurrent {
 		days, per := ledger.DailyBudget(resp.Remaining, now)
-		if mode, _, _ := payroll.Schedule(u, s.cfg.Salary); mode == payroll.ModeSplit {
+		mode, _, _ := payroll.Schedule(u, s.cfg.Salary)
+		pace, err := s.pace(ctx, userID, month, mode == payroll.ModeSplit, now, carry, m)
+		if err != nil {
+			return summaryResponse{}, err
+		}
+		resp.Pace = pace
+		qn, qe, ql := ledger.QuarterProgress(now)
+		resp.Quarter = &quarterDTO{Name: qn, Elapsed: qe, DaysLeft: ql}
+		if mode == payroll.ModeSplit {
 			// Budget until the next payday (007 FR-010).
 			payday, kind := payroll.NextPayday(now, mode)
 			days = payroll.BudgetDays(now, payday)
@@ -107,4 +125,28 @@ func (s *Server) handleSummary(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, resp)
+}
+
+// pace builds the home screen's spending-pace bar (008 FR-004). In split mode it reads the
+// month's records to find the current pay period's start balance, income and expenses.
+func (s *Server) pace(ctx context.Context, userID int64, month string, split bool, now time.Time, carry int64, m ledger.Month) (*ledger.PaceInfo, error) {
+	if !split {
+		return ledger.Pace(false, now, carry, m.Income, m.Expense, nil), nil
+	}
+	var txs []ledger.PaceTx
+	f := store.HistoryFilter{Month: month, Limit: 100}
+	for {
+		page, next, err := s.store.QueryTransactions(ctx, userID, f)
+		if err != nil {
+			return nil, err
+		}
+		for _, t := range page {
+			txs = append(txs, ledger.PaceTx{At: t.When(), Kind: t.Kind, Amount: t.Amount})
+		}
+		if next == "" {
+			break
+		}
+		f.Cursor = next
+	}
+	return ledger.Pace(true, now, carry, m.Income, m.Expense, txs), nil
 }

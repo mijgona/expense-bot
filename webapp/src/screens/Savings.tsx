@@ -9,7 +9,8 @@ import { Loader } from '../components/Loader'
 
 type Mode = 'savings_deposit' | 'savings_withdrawal'
 
-export function Savings() {
+/** initial 'deposit' (home «Отложить» / «Пополнить», 008): deposit form preselected, amount focused. */
+export function Savings({ initial }: { initial?: 'deposit' } = {}) {
   const summary = useAsync(() => getSummary(), [])
   const [mode, setMode] = useState<Mode>('savings_deposit')
   const [amount, setAmount] = useState('')
@@ -100,7 +101,7 @@ export function Savings() {
       <div className="card">
         <AmountInput
           value={amount}
-          autoFocus={false}
+          autoFocus={initial === 'deposit'}
           onChange={(v) => {
             setAmount(v)
             setTouched(true)

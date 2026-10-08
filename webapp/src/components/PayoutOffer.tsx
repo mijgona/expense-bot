@@ -7,6 +7,7 @@ import { haptic, toast } from '../lib/telegram'
 import type { Payout, Transaction } from '../lib/types'
 import { AmountInput } from './AmountInput'
 import { ErrorBanner } from './ErrorBanner'
+import { IconCheck, IconCoins } from './icons'
 
 interface Props {
   payout: Payout
@@ -16,7 +17,8 @@ interface Props {
   onChanged(): void
 }
 
-/** Home card for an expected salary payment: «💵 Аванс 8 000 с. — 15 октября» + one-tap confirmation. */
+/** Home block for an expected salary payment: «Аванс 8 000 с. — 15 октября» + one-tap confirmation.
+ *  Logic as in 007; styled as a design-B block (008 FR-010), rendered inside .ui-b. */
 export function PayoutOffer({ payout, autoOpen = false, onChanged }: Props) {
   const today = todayDushanbe()
   // An upcoming payday can't be used as the record date (no future dates) — default to today then.
@@ -72,20 +74,26 @@ export function PayoutOffer({ payout, autoOpen = false, onChanged }: Props) {
   }
 
   return (
-    <div className="card payout" ref={cardRef}>
-      <div className="row">
-        <span className="payout-title">
-          💵 {payoutTitle(payout.kind)} {formatSomoni(payout.amount)}
+    <section className="b-payout" ref={cardRef}>
+      <div className="b-payout-head">
+        <span className="b-block-icon">
+          <IconCoins size={20} />
         </span>
-        <span className="hint">— {formatPayday(payout.payday)}</span>
+        <span className="b-block-text">
+          <span className="b-payout-title">{payoutTitle(payout.kind)}</span>
+          <span className="b-payout-sub">{formatPayday(payout.payday)}</span>
+        </span>
+        <span className="b-payout-amount num display" style={{ marginLeft: 'auto' }}>
+          {formatSomoni(payout.amount)}
+        </span>
       </div>
 
       {!open && (
-        <div className="payout-actions">
-          <button className="btn" disabled={busy} onClick={() => setOpen(true)}>
+        <div className="b-payout-actions">
+          <button className="b-btn" disabled={busy} onClick={() => setOpen(true)}>
             Записать
           </button>
-          <button className="btn btn-secondary" disabled={busy} onClick={dismiss}>
+          <button className="b-btn-ghost" disabled={busy} onClick={dismiss}>
             Уже записал
           </button>
         </div>
@@ -116,11 +124,11 @@ export function PayoutOffer({ payout, autoOpen = false, onChanged }: Props) {
               <div className="error-text">{dateError ?? apiErr!.message}</div>
             )}
           </div>
-          <div className="payout-actions">
-            <button className="btn" disabled={!canSave} onClick={record}>
+          <div className="b-payout-actions">
+            <button className="b-btn" disabled={!canSave} onClick={record}>
               {busy ? 'Записываю…' : 'Подтвердить'}
             </button>
-            <button className="btn btn-secondary" disabled={busy} onClick={() => setOpen(false)}>
+            <button className="b-btn-ghost" disabled={busy} onClick={() => setOpen(false)}>
               Отмена
             </button>
           </div>
@@ -128,7 +136,7 @@ export function PayoutOffer({ payout, autoOpen = false, onChanged }: Props) {
       )}
 
       {error != null && !serverField && <ErrorBanner error={error} />}
-    </div>
+    </section>
   )
 }
 
@@ -158,21 +166,24 @@ export function PayoutRecorded({ payout, onOpenHistory }: RecordedProps) {
   }, [payout.month, payout.transactionId])
 
   return (
-    <div className="card payout">
-      <div className="row">
-        <span className="payout-title">✅ Уже записано</span>
+    <section className="b-payout">
+      <div className="b-payout-head">
+        <span className="b-block-icon">
+          <IconCheck size={20} />
+        </span>
+        <span className="b-block-text">
+          <span className="b-payout-title">Уже записано</span>
+          <span className="b-payout-sub">
+            {payoutTitle(payout.kind)} · {tx ? formatDate(tx.occurredAt) : formatPayday(payout.payday)}
+          </span>
+        </span>
+        <span className="b-payout-amount num display" style={{ marginLeft: 'auto' }}>
+          {formatSomoni(tx ? tx.amount : payout.amount)}
+        </span>
       </div>
-      <div className="row">
-        <span>{payoutTitle(payout.kind)}</span>
-        <span>{formatSomoni(tx ? tx.amount : payout.amount)}</span>
-      </div>
-      <div className="row">
-        <span className="hint">Дата</span>
-        <span className="hint">{tx ? formatDate(tx.occurredAt) : formatPayday(payout.payday)}</span>
-      </div>
-      <button className="btn-link" onClick={onOpenHistory}>
+      <button className="b-payout-link" onClick={onOpenHistory}>
         Открыть в истории ›
       </button>
-    </div>
+    </section>
   )
 }
