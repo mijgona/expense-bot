@@ -89,6 +89,25 @@ func TestAuth(t *testing.T) {
 	}
 }
 
+func TestBrowserRedirectToApp(t *testing.T) {
+	e := newEnv()
+	for _, path := range []string{"/health", "/"} {
+		req := httptest.NewRequest("GET", path, nil)
+		req.Header.Set("Accept", "text/html,application/xhtml+xml,*/*;q=0.8")
+		rec := httptest.NewRecorder()
+		e.h.ServeHTTP(rec, req)
+		if rec.Code != http.StatusFound || rec.Header().Get("Location") != "https://app.example" {
+			t.Errorf("%s from browser: %d %q", path, rec.Code, rec.Header().Get("Location"))
+		}
+	}
+	if code, body := e.do(t, "GET", "/health", "", ""); code != 200 || body["status"] != "ok" {
+		t.Errorf("health check: %d %v", code, body)
+	}
+	if code, _ := e.do(t, "GET", "/", "", ""); code != 404 {
+		t.Errorf("root without html: %d", code)
+	}
+}
+
 func TestCORS(t *testing.T) {
 	e := newEnv()
 	req := httptest.NewRequest("OPTIONS", "/api/session", nil)

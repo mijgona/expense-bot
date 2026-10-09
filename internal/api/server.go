@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -67,10 +68,29 @@ func (s *Server) Handler() http.Handler {
 
 	root := http.NewServeMux()
 	root.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
+		if s.redirectToApp(w, r) {
+			return
+		}
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	})
+	root.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
+		if !s.redirectToApp(w, r) {
+			http.NotFound(w, r)
+		}
 	})
 	root.Handle("/api/", s.auth(api))
 	return s.cors(root)
+}
+
+// redirectToApp sends a browser that landed on the API host (an old button or a
+// misconfigured BotFather link) to the Mini App. Health checks don't ask for HTML,
+// so they still get JSON. The #tgWebAppData fragment survives the redirect.
+func (s *Server) redirectToApp(w http.ResponseWriter, r *http.Request) bool {
+	if s.cfg.WebAppURL == "" || !strings.Contains(r.Header.Get("Accept"), "text/html") {
+		return false
+	}
+	http.Redirect(w, r, s.cfg.WebAppURL, http.StatusFound)
+	return true
 }
 
 // cors allows the Mini App origin only; preflight is answered before auth.
